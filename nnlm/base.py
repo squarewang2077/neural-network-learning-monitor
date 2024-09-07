@@ -4,6 +4,9 @@ class DoublyListNode:
         self.next = None
         self.prev = None
 
+    def __str__(self) -> str:
+        return str(self.data) # the print of self.data depends on the __str__ method of the data
+
 
 class DoublyLinkedList:
     def __init__(self):
@@ -57,26 +60,41 @@ class DoublyLinkedList:
             self.tail = node.prev
             if self.tail is not None: # if the node is not the only one
                 self.tail.next = None # reset the tail.next to None
-
-    def traverse_forward(self):
-        current = self.head
-        while current:
-            print(current.data)
-            current = current.next
-
-    def traverse_backward(self):
-        current = self.tail
-        while current:
-            print(current.data)
-            current = current.prev
+    def traverse(self, action, backward=False):
+        '''
+            This method will traverse the linkedlist forward or backward,
+            and put some action on each of the traversed nodes 
+        '''
+        assert backward in [True, False], "The parameter backward has to be True or False"
+        
+        if not backward: 
+            current = self.head
+            while current is not None:
+                action(current)  
+                current = current.next
+        elif backward:
+            current = self.tail
+            while current is not None:
+                action(current)
+                current = current.prev
 
     def __str__(self):
-        elements = []
-        current = self.head
-        while current:
-            elements.append(str(current.data))
-            current = current.next
-        return " <-> ".join(elements)
+        '''
+            Print out the entire list of all elements using the traverse method
+        '''
+        
+        result = [] # Define a list to collect node data during traversal
+
+        
+        def collect_data(node): # Function to append each node's data to the result list
+            result.append(str(node))
+
+        
+        self.traverse(collect_data) # Traverse the list and collect all node data
+
+        
+        return " <-> ".join(result) if result else "Empty List" # Join the collected data into a single string, separated by arrows
+    
 
 class TreeNode:
     """The node in the tree"""
@@ -84,8 +102,12 @@ class TreeNode:
         self.info = DoublyLinkedList()  # Linked list to store monitoring information
         self.children = []
 
-    def __repr__(self):
-        return f"TreeNode()"
+    def __str__(self) -> str:
+        '''
+            Since the tree node store the DoublyLinkedList, 
+            it only print out the first element of the Linkedlist 
+        '''
+        return str(self.info.head) if self.info.head else "Empty"
 
 class Tree:
     """The basic tree structure"""
@@ -96,205 +118,57 @@ class Tree:
     def add_child(self, parent_node):
         """Adds a child node to a specified parent node as the last child"""
         child_node = TreeNode()
-        parent_node.children.append(child_node)
+        parent_node.children.append(child_node) # [].append
         return child_node
 
     def delete_child(self, parent_node, child_node):
-        """Deletes a child node from its parent"""
-        parent_node.children.remove(child_node)
+        """ 
+        Deletes a child node from its parent
+        This is the simple method without unique identification of each node
+        The more advanced method only need the identification for the node 
+        """
+        parent_node.children.remove(child_node) # [].remove
 
-    def traverse(self, node=None, level=0):
-        """Traverses the tree and prints the structure"""
-        if node is None:
+    def traverse(self, node=None, action=None):
+        """
+        Performs pre-order traversal on the tree, applying an action (function) to each node.
+        """
+        if node is None:  # Start at the root if no node is provided
             node = self.root
-        indent = " " * (level * 4)
-        print(f"{indent}{node.info}")
-        for child in node.children:
-            self.traverse(child, level + 1)
+        
+        action(node) # Apply the action to the current node
 
-class TreeManager:
-    """Manages multiple trees, module names, and handles advanced operations"""
-    def __init__(self):
-        self.main_tree = None
-        self.monitoring_trees = []
-        self.module_names = {}  # Manages module names for each TreeNode
-        self.registered_nodes = {}  # Stores aliases and access names for nodes
+        for child in node.children: # Recursively traverse each child node
+            self.traverse(child, action)
 
-    def build_tree(self, root_module_name, tree_id: int, get_children_fn, tag: str, depth=None):
-        """Initializes and builds the main tree."""
-        self.main_tree = Tree(tag)
-        self._build_tree_recursive(self.main_tree.root, root_module_name, get_children_fn, tree_id, 1, depth)
-        self.set_module_name(self.main_tree.root, root_module_name)
+    def __str__(self):
+        """
+        Prints out the entire tree structure in a tree-like format.
+        """
+        result = []
+        depth = {self.root: 0}  # Dictionary to track the depth of each node
 
-    def _build_tree_recursive(self, current_node, module, get_children_fn, tree_id, level, depth):
-        """Helper function to recursively build a tree with optional depth limit."""
-        if depth is not None and level > depth:
-            return
-        children = get_children_fn(module)
-        position = 0
-        for child in children:
-            child_node = self.main_tree.add_child(current_node)
-            self.set_module_name(child_node, str(child))
-            self._build_tree_recursive(child_node, child, get_children_fn, tree_id, level + 1, depth)
-            position += 1
+        # Define a helper function that only receives the node as an argument
+        def collect_node_data(node):
+            # Get the depth of the current node
+            current_depth = depth[node]
+            
+            # Generate the tree-like prefix based on the depth
+            if current_depth == 0:
+                prefix = ""
+            else:
+                prefix = "│   " * (current_depth - 1) + "├── "
 
-    def get_module_name(self, node):
-        """Retrieves the module name for a given TreeNode."""
-        return self.module_names.get(node, "")
+            # Append the formatted node data to the result
+            result.append(f"{prefix}{str(node)}")
 
-    def set_module_name(self, node, name):
-        """Sets the module name for a given TreeNode."""
-        self.module_names[node] = name
+            # Update the depth for the children of this node
+            for child in node.children:
+                depth[child] = current_depth + 1
 
-    def merge_siblings(self, parent_node, start_idx, end_idx):
-        """Merge siblings from start_idx to end_idx under the same parent node."""
-        nodes_to_merge = parent_node.children[start_idx:end_idx + 1]
-        merged_node = TreeNode()
-        for node in nodes_to_merge:
-            merged_node.children.extend(node.children)
-            parent_node.children.remove(node)
-        parent_node.children.insert(start_idx, merged_node)
+        # Use the traverse method to collect all nodes, passing only the node to the function
+        self.traverse(action=collect_node_data)
 
-    def merge(self, nodes):
-        """Merge nodes from different parents at the same depth."""
-        if not nodes:
-            return
-        merged_node = TreeNode()
-        for node in nodes:
-            merged_node.children.extend(node.children)
-        parent_node = nodes[0].parent  # Assume nodes share the same parent
-        parent_node.children = [child for child in parent_node.children if child not in nodes]
-        parent_node.children.append(merged_node)
-
-    def split_node(self, parent_node, sub_node_position):
-        """Split a node into two parts based on sub_node_position."""
-        node_to_split = parent_node.children[sub_node_position]
-        left_child = TreeNode()
-        right_child = TreeNode()
-        midpoint = len(node_to_split.children) // 2
-        left_child.children = node_to_split.children[:midpoint]
-        right_child.children = node_to_split.children[midpoint:]
-        parent_node.children[sub_node_position] = left_child
-        parent_node.children.insert(sub_node_position + 1, right_child)
-
-    def insert_after(self, node):
-        """Insert a new node after the given node."""
-        parent_node = node.parent
-        new_node = TreeNode()
-        parent_node.children.insert(parent_node.children.index(node) + 1, new_node)
-        return new_node
-
-    def delete(self, node):
-        """Delete a given node from the tree."""
-        parent_node = node.parent
-        parent_node.children.remove(node)
-
-    def register(self, node, alias=None):
-        """Register a node with an alias for easier access."""
-        if alias:
-            self.registered_nodes[alias] = node
-        else:
-            identifier = f"Tree_{id(node)}_Level_{len(self.registered_nodes)}"
-            self.registered_nodes[identifier] = node
-
-    def access(self, alias):
-        """Access a node by its alias."""
-        return self.registered_nodes.get(alias)
-
-    def update_info(self, nodes, func):
-        """Apply a function to update information on the given nodes."""
-        for node in nodes:
-            func(node)
-
-    def access_data(self, nodes):
-        """Access data stored in the monitored nodes."""
-        return [node.info for node in nodes]
-
-    def show_structure(self):
-        """Show the structure of the main tree."""
-        self.main_tree.traverse()
-
-    def consistency_check(self):
-        """Check if the tree structure is consistent with the original model."""
-        # Implement consistency check logic here
-        pass
-
-    def sync_trees(self):
-        """Synchronizes all monitoring trees with the main tree."""
-        for monitoring_tree in self.monitoring_trees:
-            self._sync_recursive(self.main_tree.root, monitoring_tree.root)
-
-    def _sync_recursive(self, main_node, monitoring_node):
-        """Recursively synchronize two trees."""
-        self.set_module_name(monitoring_node, self.get_module_name(main_node))
-        monitoring_node.children = main_node.children  # Assuming a shallow copy; otherwise, handle copying
-        for main_child, monitoring_child in zip(main_node.children, monitoring_node.children):
-            self._sync_recursive(main_child, monitoring_child)
-
-    def print_identifiers(self):
-        """Prints the identifiers for all nodes in all trees."""
-        print("Node Identifiers:")
-        for alias, node in self.registered_nodes.items():
-            print(f"{alias}: {self.get_module_name(node)}")
-
-# Example usage:
-import torch.nn as nn
-import torch.nn 
-
-class ExampleModel(nn.Module):
-    def __init__(self):
-        super(ExampleModel, self).__init__()
-        self.conv1 = nn.Conv2d(1, 32, 3, 1)
-        self.conv2 = nn.Conv2d(32, 64, 3, 1)
-        self.fc1 = nn.Linear(9216, 128)
-        self.fc2 = nn.Linear(128, 10)
-
-    def forward(self, x):
-        x = self.conv1(x)
-        x = self.conv2(x)
-        x = torch.flatten(x, 1)
-        x = self.fc1(x)
-        x = self.fc2(x)
-        return x
-
-def torch_children_getter(module):
-    """Function to get children of a PyTorch module."""
-    return list(module.children())
-
-# Initialize the TreeManager
-nntreemanager = TreeManager()
-
-# Build the main tree
-model = ExampleModel()
-nntreemanager.build_tree(root_module_name=str(model), tree_id=1, get_children_fn=torch_children_getter, tag='main', depth=None)
-
-# Show the structure of the tree
-nntreemanager.show_structure()
-
-# Register and access a node
-nntreemanager.register(nntreemanager.main_tree.root, alias="root_node")
-accessed_node = nntreemanager.access("root_node")
-
-# Update information on nodes using a function
-nntreemanager.update_info([nntreemanager.main_tree.root], lambda node: node.info.append("Updated"))
-
-# Access data from nodes
-data = nntreemanager.access_data([nntreemanager.main_tree.root])
-print("Accessed data:", data)
-
-# Perform operations like merging and splitting
-nntreemanager.merge_siblings(nntreemanager.main_tree.root, 0, 1)
-nntreemanager.split_node(nntreemanager.main_tree.root, 0)
-
-# Sync trees
-nntreemanager.sync_trees()
-
-# Traverse and display the trees again after modification
-print("\nAfter modifications:")
-nntreemanager.show_structure()
-
-# Perform a consistency check
-nntreemanager.consistency_check()
-
-# Print identifiers
-nntreemanager.print_identifiers()
+        # Join all lines and return as a single string
+        return "\n".join(result)
+    
