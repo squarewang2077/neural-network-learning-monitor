@@ -38,7 +38,7 @@ class TestTree(unittest.TestCase):
 
     def test_str(self):
         """Test the __str__ method"""
-        expected = "Root\n├── Child 1\n│   ├── Child 1.1\n├── Child 2"
+        expected = "Root\n├── Child 1\n│   └── Child 1.1\n└── Child 2"
         self.assertEqual(str(self.tree), expected)
 
 if __name__ == '__main__':

@@ -135,40 +135,61 @@ class Tree:
         """
         if node is None:  # Start at the root if no node is provided
             node = self.root
-        
+
+        assert action is not None, "Lack of the action function for traverse"
+
         action(node) # Apply the action to the current node
 
         for child in node.children: # Recursively traverse each child node
             self.traverse(child, action)
-
+    
     def __str__(self):
         """
-        Prints out the entire tree structure in a tree-like format.
+        Prints out the entire tree structure in a tree-like format using the traverse method.
         """
         result = []
-        depth = {self.root: 0}  # Dictionary to track the depth of each node
+        depth_map = {self.root: 0}  # Track the depth of each node
+        last_child_map = {}  # Track if a node is the last child
 
-        # Define a helper function that only receives the node as an argument
+        # helper function to collect depth and last child information
+        def pre_collect_data(node):
+            depth = depth_map[node] # depth of the parent node, default for root is 0
+            for i, child in enumerate(node.children): 
+                depth_map[child] = depth + 1 # collect the depth of the child nodes 
+                last_child_map[child] = (i == len(node.children) - 1) # collect the last node of the child nodes 
+
+        # first pass to collect depth and last child information
+        self.traverse(self.root, pre_collect_data)
+
+        # helper function to colect property prefix for printing node in a tree-like structure
         def collect_node_data(node):
-            # Get the depth of the current node
-            current_depth = depth[node]
-            
-            # Generate the tree-like prefix based on the depth
-            if current_depth == 0:
+            depth = depth_map[node]
+            is_last = last_child_map.get(node, True) # {}.get
+
+            # different prefixes for different depth and whether it is the last child 
+            if depth == 0:
                 prefix = ""
             else:
-                prefix = "│   " * (current_depth - 1) + "├── "
+                prefix = ""
+                current_node = node
+                # the update for the prefix also depends on the parent nodes
+                for d in range(depth - 1): # go through the depth of the tree 
+                    parent_node = [
+                        n for n, c in depth_map.items() if c == depth - 1 - d and current_node in n.children
+                    ][0] # set up for the parent nodes that belongs to the current node for given depth of the tree  
+                    if last_child_map[parent_node]:
+                        prefix = "    " + prefix
+                    else:
+                        prefix = "│   " + prefix
 
-            # Append the formatted node data to the result
+                if is_last:
+                    prefix += "└── "
+                else:
+                    prefix += "├── "
+
             result.append(f"{prefix}{str(node)}")
 
-            # Update the depth for the children of this node
-            for child in node.children:
-                depth[child] = current_depth + 1
+        # Use the traverse method to print the tree structure
+        self.traverse(self.root, collect_node_data)
 
-        # Use the traverse method to collect all nodes, passing only the node to the function
-        self.traverse(action=collect_node_data)
-
-        # Join all lines and return as a single string
         return "\n".join(result)
-    
