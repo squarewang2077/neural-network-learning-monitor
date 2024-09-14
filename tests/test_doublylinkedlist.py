@@ -46,6 +46,23 @@ class TestDoublyLinkedList(unittest.TestCase):
         self.dll.traverse(collect_data)
         self.assertEqual(elements, ["A", "B", "C"])  # Check traversal result
 
+    def test_len(self):
+        """Test the __len__ method"""
+        # Initially, the list should be empty
+        self.assertEqual(len(self.dll), 0)
+
+        # Append some elements and check the length
+        self.dll.append("A")
+        self.assertEqual(len(self.dll), 1)  # One element
+
+        self.dll.append("B")
+        self.dll.append("C")
+        self.assertEqual(len(self.dll), 3)  # Three elements
+
+        # Delete an element and check the length
+        self.dll.delete(self.dll.head.next)  # Delete "B"
+        self.assertEqual(len(self.dll), 2)  # Two elements after deletion
+
     def test_str(self):
         """Test the __str__ method"""
         self.dll.append("A")

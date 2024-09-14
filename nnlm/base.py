@@ -1,6 +1,6 @@
 class DoublyListNode:
     def __init__(self, data):
-        self.data = data  # Can be any data type
+        self.data = data # The data 
         self.next = None
         self.prev = None
 
@@ -60,6 +60,7 @@ class DoublyLinkedList:
             self.tail = node.prev
             if self.tail is not None: # if the node is not the only one
                 self.tail.next = None # reset the tail.next to None
+
     def traverse(self, action, backward=False):
         '''
             This method will traverse the linkedlist forward or backward,
@@ -77,6 +78,21 @@ class DoublyLinkedList:
             while current is not None:
                 action(current)
                 current = current.prev
+
+    def __len__(self):
+        """
+        Method to return the length of the doubly linked list using the traverse method.
+        """
+        count = 0
+
+        def count_action(node):
+            nonlocal count  # Use nonlocal to update count within the action function
+            count += 1
+
+        # Traverse the list and count the nodes
+        self.traverse(count_action)
+
+        return count
 
     def __str__(self):
         '''
@@ -121,13 +137,13 @@ class Tree:
         parent_node.children.append(child_node) # [].append
         return child_node
 
-    def delete_child(self, parent_node, child_node):
-        """ 
-        Deletes a child node from its parent
-        This is the simple method without unique identification of each node
-        The more advanced method only need the identification for the node 
-        """
-        parent_node.children.remove(child_node) # [].remove
+    # def delete_child(self, parent_node, child_node):
+    #     """ 
+    #     Deletes a child node from its parent
+    #     This is the simple method without unique identification of each node
+    #     The more advanced method only need the identification for the node 
+    #     """
+    #     parent_node.children.remove(child_node) # [].remove
 
     def traverse(self, node=None, action=None):
         """
@@ -142,7 +158,50 @@ class Tree:
 
         for child in node.children: # Recursively traverse each child node
             self.traverse(child, action)
-    
+
+    def sync_traverse(self, start_node=None, aggregate_action=None):
+        """
+        Synchronize the traversal of each node in the DoublyLinkedList (DLL) across all tree nodes.
+        Apply an aggregate function on the nodes at the same positions.
+
+        Args:
+            aggregate_action(nodes_at_position): A function that aggregates the node info 
+                                                 at the same position across the tree nodes' DLLs.
+                                                 The nodes_at_position is a list of nodes    
+            start_node (TreeNode, optional): The starting node for the traversal. 
+                                             If None, the traversal starts from the root.
+        """
+        # make sure that the aggregate_action is not None 
+        assert aggregate_action is not None, "Lack of the aggregate_action for sync_traverse"
+
+        if start_node is None:
+            start_node = self.root  # Start from the root if no starting node is provided
+
+        position_map = {}  # Map to store DLL nodes by position, position_map = {0:[...], 1:[...]}
+
+        # First Traverse: Traverse the tree and within each node, traverse the DLL
+        def tree_action(node):
+            current_position = 0 # enclosing variable to pass the info through the function
+
+            # Function to apply on each node of the doubly linked list
+            def dll_action(dll_node):
+                nonlocal current_position # enclosing variable or it cannot be modified 
+                if current_position not in position_map:
+                    position_map[current_position] = [] # initilize the position for the map 
+                position_map[current_position].append(dll_node) # append node info for the given position 
+                current_position += 1
+
+            # Traverse the DoublyLinkedList for each TreeNode
+            node.info.traverse(dll_action)
+
+        # Start the tree traversal, beginning from the specified start node
+        self.traverse(start_node, tree_action)
+
+        # Second Traverse: Process the nodes at each position in the map
+        for nodes_at_position in position_map.values(): # iterate over the nodes   
+            aggregate_action(nodes_at_position)
+
+
     def __str__(self):
         """
         Prints out the entire tree structure in a tree-like format using the traverse method.
