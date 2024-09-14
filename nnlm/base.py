@@ -1,32 +1,42 @@
 class DoublyListNode:
-    def __init__(self, data):
-        self.data = data # The data 
+    def __init__(self):
+        '''
+        The attribution of the dll nodes are created more flexible, the dll node here is to store the info 
+        '''
         self.next = None
         self.prev = None
 
     def __str__(self) -> str:
-        return str(self.data) # the print of self.data depends on the __str__ method of the data
-
+        # Get a list of attribute names excluding 'next' and 'prev'
+        attrs = {k: v for k, v in self.__dict__.items() if k not in ['next', 'prev']}
+        
+        # Check if any attributes exist besides 'next' and 'prev'
+        if attrs:
+            # Join attribute names and values into a string representation
+            return ', '.join(f"{key}: {value}" for key, value in attrs.items())
+        else:
+            return 'None'
 
 class DoublyLinkedList:
+    '''
+    Note that all methods are worked on the defined dll nodes. The DLL will manage the dll nodes from a very high level without intervening the inside of the node 
+    '''
     def __init__(self):
         self.head = None
         self.tail = None
 
-    def append(self, data):
-        new_node = DoublyListNode(data)
+    def append(self, node):
         if self.head is not None: # if the linkedlist is not empty
             # establish the connection 
-            self.tail.next = new_node 
-            new_node.prev = self.tail
+            self.tail.next = node 
+            node.prev = self.tail
             # move the tail pointer
-            self.tail = new_node
+            self.tail = node
         else: # if the linkedlist is empty
-            self.head = new_node
-            self.tail = new_node
+            self.head = node
+            self.tail = node
 
-    def insert_after(self, node, data):
-        new_node = DoublyListNode(data)
+    def insert_after(self, node, new_node):
         # establish the connection from the new node
         new_node.prev = node
         new_node.next = node.next
@@ -136,14 +146,6 @@ class Tree:
         child_node = TreeNode()
         parent_node.children.append(child_node) # [].append
         return child_node
-
-    # def delete_child(self, parent_node, child_node):
-    #     """ 
-    #     Deletes a child node from its parent
-    #     This is the simple method without unique identification of each node
-    #     The more advanced method only need the identification for the node 
-    #     """
-    #     parent_node.children.remove(child_node) # [].remove
 
     def traverse(self, node=None, action=None):
         """
