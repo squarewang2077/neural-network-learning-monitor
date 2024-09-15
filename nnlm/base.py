@@ -25,6 +25,26 @@ class DoublyLinkedList:
         self.head = None
         self.tail = None
 
+    def __iter__(self):
+        """
+        Make the DoublyLinkedList iterable.
+        This method will return an iterator object (the list itself), 
+        which starts iteration from the head.
+        """
+        self._current = self.head  # Start from the head
+        return self  # Return the iterator object (self in this case)
+
+    def __next__(self):
+        """
+        This method is called by the iterator to get the next item.
+        """
+        if self._current is None:  # If there are no more items
+            raise StopIteration
+        else:
+            node = self._current  # Store current node
+            self._current = self._current.next  # Move to the next node
+            return node  # Return the current node
+
     def append(self, node):
         if self.head is not None: # if the linkedlist is not empty
             # establish the connection 

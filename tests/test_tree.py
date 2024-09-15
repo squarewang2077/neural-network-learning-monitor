@@ -1,8 +1,6 @@
 import unittest
 from nnlm.base import *
 
-import unittest
-
 class TestTreeNode(unittest.TestCase):
     def test_tree_node_initialization(self):
         """

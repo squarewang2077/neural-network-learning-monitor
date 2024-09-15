@@ -1,8 +1,6 @@
 import unittest
 from nnlm.base import *
 
-import unittest
-
 class TestDoublyListNode(unittest.TestCase):
 
     def test_node_str_with_attributes(self):
