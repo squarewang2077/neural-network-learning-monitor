@@ -133,6 +133,5 @@ for inputs, labels in test_loader:
     total += labels.size(0)
     correct += (predicted == labels).sum().item()
 
-eval_by_epoch.save()
 
 print(f'Accuracy of the model on the test images: {100 * correct / total:.2f}%')
