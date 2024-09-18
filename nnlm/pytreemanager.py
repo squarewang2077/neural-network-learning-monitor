@@ -388,8 +388,12 @@ class PyTreeManager:
 
             depth_tracker = current_depth # update the depth_tracker
 
-            # For each depth of the tree, compute the output features    
-            batched_output_features = tree_node.info.head.module(batched_input_features)
+            # For each depth of the tree, compute the output features
+            try: # catch the exception when the module is not able to compute the output features
+                batched_output_features = tree_node.info.head.module(batched_input_features)
+            except Exception as e:
+                raise RuntimeError(f"Failed to compute output features for module {tree_node.info.head.module}: {e}")
+
             output_tracker[current_depth] = batched_output_features # update the output_tracker for the current node
 
             # Append the input and output features to the tail DLL node of the current tree node 
