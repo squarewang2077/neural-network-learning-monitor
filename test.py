@@ -3,7 +3,7 @@
 
 
 from nnlm.tools import *
-from tests.test_sigma_max_Jacobian import * 
+from tests.test_pytreemanager import * 
 
 if __name__ == '__main__':
     unittest.main()

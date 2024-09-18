@@ -3,24 +3,17 @@ import torch.nn as nn
 import torch.optim as optim
 import torchvision
 import torchvision.transforms as transforms
-from torchvision.models import vgg11
-import numpy as np
-from scipy.stats import pearsonr
-import pandas as pd
+from nnlm import *
+
 
 
 # Hyperparameters
 batch_size = 256
 learning_rate = 0.0003
 num_epochs = 200
-lambda_jacobian = 0  # Regularization strength
-# lambda_jacobian = 1e-4  # Regularization strength
-p = 2  # L_p norm parameter
-sample_size = 200
+
 DEVICE = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
-
-# define neural network
 # Define the neural network class
 class DeepReLUNetwork(nn.Module):
     def __init__(self, input_size, hidden_sizes, output_size):
@@ -58,7 +51,7 @@ train_loader = torch.utils.data.DataLoader(train_dataset, batch_size=batch_size,
 test_dataset = torchvision.datasets.CIFAR10(root='./dataset', train=False, download=True, transform=transform)
 test_loader = torch.utils.data.DataLoader(test_dataset, batch_size=batch_size, shuffle=False)
 
-# Define ResNet18 model
+# Define Neural Network
 model = DeepReLUNetwork(input_size=3*32*32, hidden_sizes=[512, 256, 256, 256, 256, 512], output_size=10)
 model = model.to(DEVICE)
 
@@ -66,26 +59,69 @@ model = model.to(DEVICE)
 criterion = nn.CrossEntropyLoss()
 optimizer = optim.Adam(model.parameters(), lr=learning_rate)
 
-# Function to compute the Jacobian of the model
-def compute_jacobian(model, inputs):
-    inputs.requires_grad_(True)
-    outputs = model(inputs)
-    jacobians = []
-    for i in range(outputs.size(1)):
-        grad_outputs = torch.zeros_like(outputs)
-        grad_outputs[:, i] = 1
-        jacobian = torch.autograd.grad(outputs, inputs, grad_outputs=grad_outputs, create_graph=True, retain_graph=True, only_inputs=True)[0]
-        jacobians.append(jacobian)
-    jacobians = torch.stack(jacobians, dim=1)
-    return jacobians
 
-class Learning_Monitor:
-    def __init__(self, model):
-        self.model = model
+# Import the learning monitor
+pytreemanager = PyTreeManager()
+pytreemanager.build_tree(model)
+pytreemanager.prune(retained_depth=[2])
+# pytreemanager._merge_nodes(pytreemanager.tree.root, 0, 1)
+pytreemanager._alias('add')
+print(pytreemanager.tree)
+pytreemanager._merge_nodes(pytreemanager.tree.root, 0, 2)
+print(pytreemanager.tree)
+pytreemanager._merge_nodes(pytreemanager.tree.root, 1, 2)
+print(pytreemanager.tree)
+pytreemanager._merge_nodes(pytreemanager.tree.root, 2, 3)
+print(pytreemanager.tree)
+pytreemanager._merge_nodes(pytreemanager.tree.root, 3, 4)
+print(pytreemanager.tree)
+pytreemanager._merge_nodes(pytreemanager.tree.root, 4, 5)
+print(pytreemanager.tree)
+pytreemanager._merge_nodes(pytreemanager.tree.root, 5, 6)
+print(pytreemanager.tree)
+
+# use the traverse defined in the PyTreeManager to traverse the tree and compute the maximal singular value of the Jacobian of the module in the node and store the value in the first empty DLL node (the node with only .next and .prev attributes). Before the computation of the maximal singular value for the Jacobian of the module in the node, we first need to store the features after each module in the mpde and also stored in the first empty DLL node.
+batched_inputs = None
+
+# Initilize the DLL node to store the computed output features and msv
+info_dll_node = DoublyListNode()
+info_dll_node.batched_input_features = []
+info_dll_node.batched_output_features = []
+info_dll_node.msv = []
+depth_tracker = 0 # the tracker of the depth for travsering the tree
+
+def calculate_output_features(tree_node):
+    # Track the change of the depth 
+    current_depth = tree_node.info.head.depth
+
+    # If detect the change of the depth, recover the batched_input_features to the inputs 
+    if current_depth > depth_tracker:
+        batched_input_features = batched_inputs 
+        depth_tracker = current_depth
+    else:
+        # Pass the output features to the next node
+        batched_input_features = batched_output_features
+
+        
+
+    # For each depth of the tree, compute the output features and msv    
+    batched_output_features = tree_node.info.head.module(batched_input_features)
+    msv = sigma_max_Jacobian(tree_node.info.head.module, batched_input_features, DEVICE)
+    
+    # Store the output features and msv in the first empty DLL node
+    info_dll_node.batched_input_features.append(batched_input_features)
+    info_dll_node.bathced_output_features.append(batched_output_features)    
+    info_dll_node.msv.append(msv)
+
+    # Append the info_dll_node to the tree_node
+    tree_node.info.append(info_dll_node)
+
+
+pytreemanager.tree.traverse(calculate_output_features)
+
 
 
 # Training loop
-learning_monitor = Learning_Monitor(model)
 for epoch in range(num_epochs):
     model.train()
     running_loss = 0.0
@@ -109,18 +145,7 @@ for epoch in range(num_epochs):
             print(f'Epoch [{epoch + 1}/{num_epochs}], Step [{i + 1}/{len(train_loader)}], Loss: {running_loss / 100:.4f}')
             running_loss = 0.0
 
-    # Compute and log Jacobian for the epoch
-    model.eval()
-    with torch.no_grad():
-        inputs, _ = next(iter(train_loader))
-        inputs = inputs.to(DEVICE)
-    inputs.requires_grad_(True)  # Ensure inputs require gradients for Jacobian computation
-    jacobian = compute_jacobian(model, inputs)
-    jacobian_norm = torch.norm(jacobian.view(jacobian.size(0), -1), p=p, dim=1).mean().item()
-    print(f'Epoch [{epoch + 1}/{num_epochs}], Jacobian L_{p} Norm: {jacobian_norm:.4f}')
-
-    learning_monitor.deompose()
-
+        pytreemanager.tree.traverse()
     
 # Evaluate the model
 model.eval()

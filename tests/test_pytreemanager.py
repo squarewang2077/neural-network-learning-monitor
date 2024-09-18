@@ -1,4 +1,5 @@
 import unittest
+import torch
 import torch.nn as nn
 from nnlm.pytreemanager import *
 
@@ -11,7 +12,38 @@ class ComplexModel(nn.Module):
             nn.Linear(5, 3),
             nn.ReLU()
         )
-        self.layer3 = nn.Conv2d(1, 1, 3)
+        self.layer3 = nn.Conv2d(1, 1, 1)
+
+    def forward(self, x):
+        x = self.layer1(x)
+        x = self.layer2(x)
+        # Reshape x to match the input shape expected by Conv2d
+        x = x.view(x.size(0), 1, 3, 1)  # Assuming batch size is the first dimension
+        x = self.layer3(x)
+        return x
+
+class ReshapeLayer(nn.Module):
+    def forward(self, x):
+        return x.view(x.size(0), 1, 3, 1)
+
+class ComplexModel2(nn.Module):
+    def __init__(self):
+        super(ComplexModel2, self).__init__()
+        self.layer1 = nn.Sequential(nn.Linear(10, 5))
+        self.layer2 = nn.Sequential(
+            nn.Linear(5, 3),
+            nn.ReLU()
+        )
+        self.reshape = nn.Sequential(ReshapeLayer())  # Use the custom ReshapeLayer
+        self.layer3 = nn.Sequential(nn.Conv2d(1, 1, 1))
+
+    def forward(self, x):
+        x = self.layer1(x)
+        x = self.layer2(x)
+        x = self.reshape(x)  # Reshape x to match the input shape expected by Conv2d
+        x = self.layer3(x)
+        return x
+
 
 class TestPyTreeManagerComplex(unittest.TestCase):
     def setUp(self):
@@ -19,7 +51,9 @@ class TestPyTreeManagerComplex(unittest.TestCase):
         Set up a complex model and PyTreeManager for each test case.
         """
         self.model = ComplexModel()  # A more complex PyTorch model with multiple layers and sequential blocks
+        self.model2 = ComplexModel2()  # The model with the all the leaves having the same depth
         self.manager = PyTreeManager()  # Instantiate the tree manager
+
 
     def test_build_tree_complex(self):
         """
@@ -43,24 +77,6 @@ class TestPyTreeManagerComplex(unittest.TestCase):
                 self.assertIsInstance(dll_node.module, nn.Sequential, "Second child should be a Sequential block.")
             elif idx == 2:
                 self.assertIsInstance(dll_node.module, nn.Conv2d, "Third child should be a Conv2d layer.")
-
-    def test_prune_tree_complex(self):
-        """
-        Test if the prune function correctly removes nodes not in the retained depths for a complex model.
-        """
-        # Build the tree from the PyTorch model
-        self.manager.build_tree(self.model)
-
-        # Before pruning, the tree should have the root and its 3 children
-        retained_depths = [0, 1]  # We want to keep the root and its immediate children (depth 0 and 1)
-        self.manager.prune(retained_depths)
-
-        # Verify that only root and its children (depth 1) are kept
-        self.assertEqual(len(self.manager.tree.root.children), 3, "There should still be 3 children after pruning.")
-        
-        # Check if any child of the root has children (should not have since only depth 1 is retained)
-        for child in self.manager.tree.root.children:
-            self.assertEqual(len(child.children), 0, "Nodes at depth 1 should have no children after pruning.")
 
     def test_find_parent_node(self):
         """
@@ -161,5 +177,135 @@ class TestPyTreeManagerComplex(unittest.TestCase):
         self.assertIsNone(inserted_node.info.head.module, "The inserted node should have no module.")
         self.assertIsNone(inserted_node.info.head.depth, "The inserted node should have no depth.")
 
+    def test_add_alias(self):
+        """
+        Test if the _add_alias method correctly assigns unique names to the head node of each DLL in the tree.
+        """
+        # Build the tree from the PyTorch model
+        self.manager.build_tree(self.model)
+
+        # Apply the add_alias function
+        self.manager._alias("add")
+
+        # Check the alias of each node in the tree
+        def check_alias(node):
+            dll_node = node.info.head
+            if hasattr(dll_node, 'module') and hasattr(dll_node, 'depth'):
+                module_name = dll_node.module.__class__.__name__
+                depth = dll_node.depth
+                expected_alias = f"{depth}:{module_name}"
+                self.assertEqual(dll_node.alias, expected_alias, f"Alias should be '{expected_alias}' but got '{dll_node.alias}'.")
+
+        # Traverse the tree and check aliases
+        self.manager.tree.traverse(self.manager.tree.root, check_alias)
+
+    def test_remove_alias(self):
+        """
+        Test if the _alias method correctly removes the unique names from the head node of each DLL in the tree.
+        """
+        # Build the tree from the PyTorch model
+        self.manager.build_tree(self.model)
+
+        # Apply the add_alias function to add aliases first
+        self.manager._alias(add_or_remove="add")
+
+        # Now, apply the remove_alias function to remove the aliases
+        self.manager._alias(add_or_remove="remove")
+
+        # Check that the alias of each node in the tree is removed
+        def check_alias_removed(node):
+            dll_node = node.info.head
+            if hasattr(dll_node, 'module') and hasattr(dll_node, 'depth'):
+                self.assertFalse(hasattr(dll_node, 'alias'), "Alias should be removed from the DLL node.")
+
+        # Traverse the tree and check aliases
+        self.manager.tree.traverse(self.manager.tree.root, check_alias_removed)
+
+    def test_prune_tree_complex(self):
+        """
+        Test if the prune function correctly removes nodes not in the retained depths for a complex model.
+        """
+        # Build the tree from the PyTorch model
+        self.manager.build_tree(self.model)
+
+        # Before pruning, the tree should have the root and its 3 children
+        retained_depths = [0, 1]  # We want to keep the root and its immediate children (depth 0 and 1)
+        self.manager.prune(retained_depths)
+
+        # Verify that only root and its children (depth 1) are kept
+        self.assertEqual(len(self.manager.tree.root.children), 3, "There should still be 3 children after pruning.")
+        
+        # Check the children, the leaf node should not be removed  
+        self.assertEqual(len(self.manager.tree.root.children[0].children), 0, "Nodes at depth 1 should have 2 leaf children after pruning.")
+        self.assertEqual(len(self.manager.tree.root.children[1].children), 2, "Nodes at depth 1 should have 2 leaf children after pruning.")
+        self.assertEqual(len(self.manager.tree.root.children[2].children), 0, "Nodes at depth 1 should have 2 leaf children after pruning.")
+
+    def test_prune_tree_with_leaf_nodes(self):
+        """
+        Test if the prune function correctly retains leaf nodes even if they are not in the retained depths.
+        """
+        # Build the tree from the PyTorch model
+        self.manager.build_tree(self.model)
+
+        # Before pruning, the tree should have the root and its 3 children
+        retained_depths = [0]  # We want to keep only the root
+
+        # Manually add a leaf node to the first child to test leaf node retention
+        leaf_node = TreeNode()
+        leaf_dll_node = DoublyListNode()
+        leaf_dll_node.module = nn.Linear(5, 2)
+        leaf_dll_node.depth = 2
+        leaf_node.info.append(leaf_dll_node)
+        self.manager.tree.root.children[0].children.append(leaf_node)
+
+        self.manager.prune(retained_depths)
+
+        # Verify that the root has only one child (the first child with the leaf node)
+        self.assertEqual(len(self.manager.tree.root.children), 4, "Root should have 4 children after pruning.")
+
+    def test_get_max_depth(self):
+        """
+        Test if the _get_max_depth method correctly returns the maximum depth of the tree.
+        """
+        # Build the tree from the PyTorch model
+        self.manager.build_tree(self.model)
+
+        # Get the maximum depth of the tree
+        max_depth = self.manager._get_max_depth()
+
+        # Verify that the maximum depth is correct
+        self.assertEqual(max_depth, 2, "The maximum depth of the tree should be 2.")
+
+    def test_feature_tracker(self):
+        """
+        Test the _feature_tracker method to ensure it correctly tracks and stores features.
+        """
+        # Define a simple input tensor
+        batched_inputs = torch.randn(2, 10)  # Batch size of 2, input size of 10
+
+        # Build the tree from the PyTorch model
+        self.manager.build_tree(self.model2)
+
+        # Apply the feature tracker
+        self.manager._feature_tracker(batched_inputs)
+
+        # Verify that the features are stored correctly in the DLL nodes
+        def check_features(node):
+            dll_node = node.info.head
+            if hasattr(dll_node, 'batched_input_features') and hasattr(dll_node, 'batched_output_features'):
+                # Check that the input and output features are stored
+                self.assertIsNotNone(dll_node.batched_input_features, "Input features should be stored in the DLL node.")
+                self.assertIsNotNone(dll_node.batched_output_features, "Output features should be stored in the DLL node.")
+
+                # Check that the input features match the expected shape
+                for input_features in dll_node.batched_input_features:
+                    self.assertEqual(input_features.shape, batched_inputs.shape, "Input features should have the same shape as the batched inputs.")
+
+                # Check that the output features are computed correctly
+                for output_features in dll_node.batched_output_features:
+                    self.assertEqual(output_features.shape[0], batched_inputs.shape[0], "Output features should have the same batch size as the batched inputs.")
+
+        # Traverse the tree and check features
+        self.manager.tree.traverse(self.manager.tree.root, check_features)
 if __name__ == '__main__':
     unittest.main()

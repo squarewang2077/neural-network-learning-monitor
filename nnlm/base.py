@@ -153,7 +153,10 @@ class TreeNode:
             Since the tree node store the DoublyLinkedList, 
             it only print out the first element of the Linkedlist 
         '''
-        return str(self.info.head) if self.info.head else "Empty"
+        if self.info.head:
+            return str(self.info.head.alias) if hasattr(self.info.head, 'alias') else str(self.info.head)
+        else:
+            return "Empty"
 
 class Tree:
     """The basic tree structure"""

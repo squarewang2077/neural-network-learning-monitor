@@ -109,19 +109,18 @@ class PyTreeManager:
             ### The part that deal with node by differen conditions ###  
             merged_dll_node = DoublyListNode() # store the aggregated info from the dll_nodes
                  
-            if 'module' in first_keys: # For the modules stored at the head of the dll, capsule it by nn.Sequential()
+            if all(key in first_keys for key in ['module', 'depth']):  # For the modules stored at the head of the dll, capsule it by nn.Sequential()
                 values = [dll_node.module for dll_node in filtered_dll_nodes] # Extract the 'module' values from the nodes at the current position
-
-                merged_dll_node.module = nn.Sequential(*values) # update merged_dll_node by the capsuled modules using nn.Sequential()
-            elif 'depth' in first_keys:
 
                 # Ensure all 'depth' values are the same before merging
                 depths = [dll_node.depth for dll_node in filtered_dll_nodes]
                 if len(set(depths)) != 1:
                     raise ValueError("All 'depth' values must be the same when merging modules")
 
+                merged_dll_node.module = nn.Sequential(*values) # update merged_dll_node by the capsuled modules using nn.Sequential()
+
                 merged_dll_node.depth = depths[0] # update the depth 
-            
+
             # If the attributes except next and prev are the same 
             elif all(filter_basic_attribute(dll_node.__dict__).values() == filter_basic_attribute(first_dll_node_attributes).values() for dll_node in filtered_dll_nodes):
                 # If values are the same, take the first node's values as the value for the merged node
@@ -164,48 +163,6 @@ class PyTreeManager:
         self.tree.traverse(self.tree.root, search_for_parent)
 
         return parent_node
-
-
-    def _remove_node(self, node_to_remove: TreeNode):
-        """
-        Remove a node from the tree without removing its children.
-        If the removed node is the root, all its children will become new independent trees.
-        """
-        # Error Checking about the root 
-        assert self.tree is not None, "The root of the tree is None"
-        assert node_to_remove != self.tree.root, "Cannot remove the root node"  
-
-        # Traverse the tree to find the parent of the node to remove
-        ## We have to do this because the tree node only have .child not .parent
-        parent_node = self._find_parent_node(node_to_remove)
-
-        # If no parent was found, the node is not part of the tree
-        if parent_node is None:
-            raise ValueError("Node not found in the tree.")
-
-        # Insert the children of node_to_remove into its parent's list of children
-        index = parent_node.children.index(node_to_remove)
-        parent_node.children.pop(index)  # Remove the node_to_remove from its parent's children
-
-        def update_depth(node):
-            """
-            Update the depth of each child node of node_to_remove by decreasing 1.
-            """
-            # this is another way to use the traverse defined, it can be a iterate, by defining the
-            def dll_action(dll_node):
-                if hasattr(dll_node, 'depth'):  # Ensure the node has a depth attribute
-                    dll_node.depth -= 1  # Increment the depth by 1
-            
-            node.info.traverse(dll_action)
-
-        # Apply the update_depth to each child of the node_to_remove
-        for child in node_to_remove.children:
-            self.tree.traverse(child, update_depth)  # Traverse each subtree rooted at the children
-
-        # Insert the children of the node to remove in its place in reverse order to preserve order
-        for child in reversed(node_to_remove.children): 
-            parent_node.children.insert(index, child)
-
 
     def _replicate_info(self, node: TreeNode):
         """
@@ -267,12 +224,48 @@ class PyTreeManager:
         # Insert the new node after the given node in the parent's children list
         parent_node.children.insert(index + 1, new_node)
 
+    def _remove_node(self, node_to_remove: TreeNode):
+        """
+        Remove a node from the tree without removing its children.
+        """
+        # Error Checking about the root 
+        assert self.tree is not None, "The root of the tree is None"
+        assert node_to_remove != self.tree.root, "Cannot remove the root node"  
+
+        # Traverse the tree to find the parent of the node to remove
+        ## We have to do this because the tree node only have .child not .parent
+        parent_node = self._find_parent_node(node_to_remove)
+
+        # If no parent was found, the node is not part of the tree
+        if parent_node is None:
+            raise ValueError("Node not found in the tree.")
+
+        # Insert the children of node_to_remove into its parent's list of children
+        index = parent_node.children.index(node_to_remove)
+        parent_node.children.pop(index)  # Remove the node_to_remove from its parent's children
+
+        def update_depth(node):
+            """
+            Update the depth of each child node of node_to_remove by decreasing 1.
+            """
+            # this is another way to use the traverse defined, it can be a iterate, by defining the
+            def dll_action(dll_node):
+                if hasattr(dll_node, 'depth'):  # Ensure the node has a depth attribute
+                    dll_node.depth -= 1  # Increment the depth by 1
+            
+            node.info.traverse(dll_action)
+
+        # Apply the update_depth to each child of the node_to_remove
+        for child in node_to_remove.children:
+            self.tree.traverse(child, update_depth)  # Traverse each subtree rooted at the children
+
+        # Insert the children of the node to remove in its place in reverse order to preserve order
+        for child in reversed(node_to_remove.children): 
+            parent_node.children.insert(index, child)
     
     def prune(self, retained_depth):
         """
-        Prunes the tree by marking all nodes except the root and the nodes at the specified depths for removal.
-        Then, removes all the marked nodes.
-
+        Prunes the tree by marking all nodes except the root, the leaves, and the nodes at the specified depths for removal. Then, removes all the marked nodes.
         Args:
             retained_depth (list): A list of integer depths to retain in the tree. 
                                 Nodes at these depths will not be removed.
@@ -298,9 +291,113 @@ class PyTreeManager:
         # Traverse the tree and mark nodes for removal
         self.tree.traverse(self.tree.root, prune_action)
 
+        # filter out the leaf nodes 
+        nonleaf_nodes = [node for node in nodes_to_remove if node.children]
+        nodes_to_remove = nonleaf_nodes
+
         # Now, remove the marked nodes
         for node in nodes_to_remove:
             self._remove_node(node)
+
+    def _alias(self, add_or_remove="add"):
+        """
+        Assigns or removes a unique name to/from the head node of each DLL in the tree.
+        The name is the name of the module and the depth of the module in a short form.
+        This name is created as an attribute of the DLL node, which is .alias.
+        
+        Args:
+            add_or_remove (str): If "add", adds the alias. If "remove", removes the alias.
+        """
+        def rename_action(node):
+            def dll_rename_action(dll_node):
+                if hasattr(dll_node, 'module') and hasattr(dll_node, 'depth'):
+                    if add_or_remove == "add":
+                        module_name = dll_node.module.__class__.__name__
+                        depth = dll_node.depth
+                        dll_node.alias = f"{depth}:{module_name}"
+                    elif add_or_remove == "remove" and hasattr(dll_node, 'alias'):
+                        del dll_node.alias
+
+            node.info.traverse(dll_rename_action)
+
+        self.tree.traverse(self.tree.root, rename_action)
+
+    def _get_max_depth(self):
+        """
+        Returns the maximum depth of the tree.
+        """
+        max_depth = 0
+
+        def max_depth_action(node):
+            nonlocal max_depth
+            if node.info.head.depth > max_depth:
+                max_depth = node.info.head.depth
+
+        self.tree.traverse(self.tree.root, max_depth_action)
+
+        return max_depth
+
+    def _leaf_check(self):
+        '''
+        Traverse the tree nodes and check whether all the leaf nodes have the same depth.
+        '''
+        leaf_depths = set()
+
+        def check_leaf_depth(node):
+            # If the node has no children, it's a leaf node
+            if not node.children:
+                leaf_depths.add(node.info.head.depth)
+
+        self.tree.traverse(self.tree.root, check_leaf_depth)
+
+        # Check if all leaf nodes have the same depth
+        if len(leaf_depths) == 1:
+            return True
+        else:
+            return False
+
+    def _feature_tracker(self, batched_inputs):
+        '''
+        The function to track the features after each module in the module and store the features in the first empty DLL node, which is the second one. 
+        '''
+        if not self._leaf_check(): # check whether all the leaf nodes have the same depth
+            raise ValueError("The leaf of the tree has more than one depth, which is not suitable for tracking features.")
+
+        depth_tracker = -1 # insure that the depth will be changed at the first time
+        output_tracker = {} # track the output features of the previous module by the diferent depth
+
+        def calculate_output_features(tree_node):
+            '''
+            As we go through each node of the tree, there will be depth change tracker that if the depth is changed, the input features will be reassigned. 
+            '''
+            # Initilize the DLL node to store the computed intermediate features
+            info_dll_node = DoublyListNode()
+            info_dll_node.batched_input_features = []
+            info_dll_node.batched_output_features = []
+            # Append the info_dll_node to the tree_node
+            tree_node.info.append(info_dll_node)
+
+            nonlocal depth_tracker
+            nonlocal output_tracker
+            current_depth = tree_node.info.head.depth # the current depth of the tree node
+            if (current_depth != depth_tracker) and (current_depth not in output_tracker.keys()): # if the depth is changed and first tracked by the output_tracker
+
+                batched_input_features = batched_inputs # reset the batched_input_features
+            else: # if the depth is not changed
+                batched_input_features = output_tracker[current_depth] # pass the output features of previous tree node to the current node
+
+            depth_tracker = current_depth # update the depth_tracker
+
+            # For each depth of the tree, compute the output features    
+            batched_output_features = tree_node.info.head.module(batched_input_features)
+            output_tracker[current_depth] = batched_output_features # update the output_tracker for the current node
+
+            # Append the input and output features to the tail DLL node of the current tree node 
+            tree_node.info.tail.batched_input_features.append(batched_input_features)
+            tree_node.info.tail.batched_output_features.append(batched_output_features)
+
+        self.tree.traverse(self.tree.root, calculate_output_features)
+
 
     def __str__(self):
         """String representation of the tree manager."""
