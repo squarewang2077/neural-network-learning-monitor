@@ -63,63 +63,39 @@ optimizer = optim.Adam(model.parameters(), lr=learning_rate)
 # Import the learning monitor
 pytreemanager = PyTreeManager()
 pytreemanager.build_tree(model)
+print(pytreemanager.tree)
+pytreemanager._alias('add')
+print(pytreemanager.tree)
 pytreemanager.prune(retained_depth=[2])
-# pytreemanager._merge_nodes(pytreemanager.tree.root, 0, 1)
+print(pytreemanager.tree)
+pytreemanager._alias('remove')
+print(pytreemanager.tree)
 pytreemanager._alias('add')
 print(pytreemanager.tree)
 pytreemanager._merge_nodes(pytreemanager.tree.root, 0, 2)
-print(pytreemanager.tree)
 pytreemanager._merge_nodes(pytreemanager.tree.root, 1, 2)
-print(pytreemanager.tree)
 pytreemanager._merge_nodes(pytreemanager.tree.root, 2, 3)
-print(pytreemanager.tree)
 pytreemanager._merge_nodes(pytreemanager.tree.root, 3, 4)
-print(pytreemanager.tree)
 pytreemanager._merge_nodes(pytreemanager.tree.root, 4, 5)
-print(pytreemanager.tree)
 pytreemanager._merge_nodes(pytreemanager.tree.root, 5, 6)
+pytreemanager._merge_nodes(pytreemanager.tree.root, 6, 6)
+pytreemanager._alias('remove')
+pytreemanager._expand_leaves()
+pytreemanager._alias('add')
 print(pytreemanager.tree)
 
-# use the traverse defined in the PyTreeManager to traverse the tree and compute the maximal singular value of the Jacobian of the module in the node and store the value in the first empty DLL node (the node with only .next and .prev attributes). Before the computation of the maximal singular value for the Jacobian of the module in the node, we first need to store the features after each module in the mpde and also stored in the first empty DLL node.
-batched_inputs = None
 
-# Initilize the DLL node to store the computed output features and msv
-info_dll_node = DoublyListNode()
-info_dll_node.batched_input_features = []
-info_dll_node.batched_output_features = []
-info_dll_node.msv = []
-depth_tracker = 0 # the tracker of the depth for travsering the tree
+def func(tree_node): # a function that wraps the sigma_max_Jacobian
+    # get the arguments for the sigma_max_Jacobian
+    module = tree_node.info.head.module
+    _, batched_inputs_features = pytreemanager._get_attr(tree_node, 'batched_input_features')
 
-def calculate_output_features(tree_node):
-    # Track the change of the depth 
-    current_depth = tree_node.info.head.depth
+    batched_inputs_features = torch.unsqueeze(batched_inputs_features, 1) # notice that we have to expand the dimension of the input features even if it has an batch dimension,e.g., (256, 3, 32, 32) to (256, 1, 3, 32, 32), because of the vmap function in the sigma_max_Jacobian. 
 
-    # If detect the change of the depth, recover the batched_input_features to the inputs 
-    if current_depth > depth_tracker:
-        batched_input_features = batched_inputs 
-        depth_tracker = current_depth
-    else:
-        # Pass the output features to the next node
-        batched_input_features = batched_output_features
-
-        
-
-    # For each depth of the tree, compute the output features and msv    
-    batched_output_features = tree_node.info.head.module(batched_input_features)
-    msv = sigma_max_Jacobian(tree_node.info.head.module, batched_input_features, DEVICE)
-    
-    # Store the output features and msv in the first empty DLL node
-    info_dll_node.batched_input_features.append(batched_input_features)
-    info_dll_node.bathced_output_features.append(batched_output_features)    
-    info_dll_node.msv.append(msv)
-
-    # Append the info_dll_node to the tree_node
-    tree_node.info.append(info_dll_node)
-
-
-pytreemanager.tree.traverse(calculate_output_features)
-
-
+    # compute the maximal singular value of the Jacobian of the module w.r.t. batched_inputs
+    msv_dict = {}
+    msv_dict['msv'] = sigma_max_Jacobian(module, batched_inputs_features, DEVICE, iters=10, tol=1e-5)
+    return msv_dict
 
 # Training loop
 for epoch in range(num_epochs):
@@ -145,18 +121,20 @@ for epoch in range(num_epochs):
             print(f'Epoch [{epoch + 1}/{num_epochs}], Step [{i + 1}/{len(train_loader)}], Loss: {running_loss / 100:.4f}')
             running_loss = 0.0
 
-        pytreemanager.tree.traverse()
-    
-# Evaluate the model
-model.eval()
-correct = 0
-total = 0
-for inputs, labels in test_loader:
-    inputs, labels = inputs.to(DEVICE), labels.to(DEVICE)
-    outputs = model(inputs)
-    _, predicted = torch.max(outputs.data, 1)
-    total += labels.size(0)
-    correct += (predicted == labels).sum().item()
+        pytreemanager.feature_tracker(inputs)
+        pytreemanager.update_info(func)
+        
+     
+# # E valuate the model
+# model.eval()
+# correct = 0
+# total = 0
+# for inputs, labels in test_loader:
+#     inputs, labels = inputs.to(DEVICE), labels.to(DEVICE)
+#     outputs = model(inputs)
+#     _, predicted = torch.max(outputs.data, 1)
+#     total += labels.size(0)
+#     correct += (predicted == labels).sum().item()
 
 
-print(f'Accuracy of the model on the test images: {100 * correct / total:.2f}%')
+# print(f'Accuracy of the model on the test images: {100 * correct / total:.2f}%')

@@ -45,6 +45,24 @@ class ComplexModel2(nn.Module):
         return x
 
 
+class ComplexModel3(nn.Module):
+    def __init__(self):
+        super(ComplexModel3, self).__init__()
+        self.layer1 = nn.Sequential(nn.Linear(10, 5))
+        self.layer2 = nn.Sequential(
+            nn.Linear(5, 3),
+            nn.ReLU()
+        )
+        self.layer3 = nn.Sequential(nn.Conv2d(1, 1, 1))
+
+    def forward(self, x):
+        x = self.layer1(x)
+        x = self.layer2(x)
+        # Reshape x to match the input shape expected by Conv2d
+        x = x.view(x.size(0), 1, 3, 1)  # Assuming batch size is the first dimension
+        x = self.layer3(x)
+        return x
+
 class TestPyTreeManagerComplex(unittest.TestCase):
     def setUp(self):
         """
@@ -52,6 +70,7 @@ class TestPyTreeManagerComplex(unittest.TestCase):
         """
         self.model = ComplexModel()  # A more complex PyTorch model with multiple layers and sequential blocks
         self.model2 = ComplexModel2()  # The model with the all the leaves having the same depth
+        self.model3 = ComplexModel3()  # The model to test the error handling of feature_tracker
         self.manager = PyTreeManager()  # Instantiate the tree manager
 
 
@@ -278,7 +297,7 @@ class TestPyTreeManagerComplex(unittest.TestCase):
 
     def test_feature_tracker(self):
         """
-        Test the _feature_tracker method to ensure it correctly tracks and stores features.
+        Test the feature_tracker method to ensure it correctly tracks and stores features.
         """
         # Define a simple input tensor
         batched_inputs = torch.randn(2, 10)  # Batch size of 2, input size of 10
@@ -287,7 +306,7 @@ class TestPyTreeManagerComplex(unittest.TestCase):
         self.manager.build_tree(self.model2)
 
         # Apply the feature tracker
-        self.manager._feature_tracker(batched_inputs)
+        self.manager.feature_tracker(batched_inputs)
 
         # Verify that the features are stored correctly in the DLL nodes
         def check_features(node):
@@ -307,5 +326,69 @@ class TestPyTreeManagerComplex(unittest.TestCase):
 
         # Traverse the tree and check features
         self.manager.tree.traverse(self.manager.tree.root, check_features)
+
+    def test_feature_tracker_module_error(self):
+        """
+        Test if the feature_tracker method raises an error when a module fails to compute output features.
+        """
+      
+        # Build the tree from the faulty model
+        self.manager.build_tree(self.model3)
+
+        # Define a simple input tensor
+        batched_inputs = torch.randn(2, 10)  # Batch size of 2, input size of 10
+
+        # Apply the feature tracker and expect a RuntimeError
+        with self.assertRaises(RuntimeError) as context:
+            self.manager.feature_tracker(batched_inputs)
+
+        self.assertTrue("Failed to compute output features for module" in str(context.exception))
+
+    def test_get_attr(self):
+        """
+        Test if the _get_attr method correctly retrieves the attribute value of the DLL nodes in the tree.
+        """
+        # Build the tree from the PyTorch model
+        self.manager.build_tree(self.model)
+
+        # Define a function to add a custom attribute to each DLL node
+        def add_custom_attr(tree_node):
+            dll_node = DoublyListNode()
+            dll_node.custom_attr = "test_value"
+            tree_node.info.append(dll_node)
+
+        # Traverse the tree and add the custom attribute to each node
+        self.manager.tree.traverse(self.manager.tree.root, add_custom_attr)
+
+        # Retrieve the custom attribute value using _get_attr
+        attr_node, attr_values = self.manager._get_attr(self.manager.tree.root, 'custom_attr')
+
+        # Verify that the retrieved attribute values are correct
+        self.assertEqual(attr_values, "test_value", "The custom attribute value should be 'test_value'.")
+        self.assertEqual(attr_node, self.manager.tree.root.info.tail, "The custom attribute node should be from the root node.")
+
+    def test_expand_leaves(self):
+        """
+        Test if the _expand_leaves method correctly expands all the leaves having .children attribute in the head of the DLL node.
+        """
+        # Build the tree from the PyTorch model
+        self.manager.build_tree(self.model, depth = 1)
+
+        # Before expanding leaves, the root should have 3 children
+        self.assertEqual(len(self.manager.tree.root.children), 3, "Root should have 3 children before expanding leaves.")
+
+        # Apply the _expand_leaves method
+        self.manager._expand_leaves()
+
+        # After expanding leaves, the second child (Sequential block) should have 2 children
+        self.assertEqual(len(self.manager.tree.root.children[1].children), 2, "Second child should have 2 children after expanding leaves.")
+
+        # Verify that the children of the second child are the Linear and ReLU layers
+        self.assertIsInstance(self.manager.tree.root.children[1].children[0].info.head.module, nn.Linear, "First child of the second child should be a Linear layer.")
+        self.assertIsInstance(self.manager.tree.root.children[1].children[1].info.head.module, nn.ReLU, "Second child of the second child should be a ReLU layer.")
+
+        # Verify that the depth of the expanded children is correct
+        self.assertEqual(self.manager.tree.root.children[1].children[0].info.head.depth, 2, "Depth of the first child of the second child should be 2.")
+        self.assertEqual(self.manager.tree.root.children[1].children[1].info.head.depth, 2, "Depth of the second child of the second child should be 2.")
 if __name__ == '__main__':
     unittest.main()

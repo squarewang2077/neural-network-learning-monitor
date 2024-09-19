@@ -51,9 +51,33 @@ class PyTreeManager:
         root_dll_node.depth = 0 
         self.tree.root.info.append(root_dll_node)
 
-
         # Use the traverse method to build the tree
         self.tree.traverse(self.tree.root, action)
+
+    def _expand_leaves(self):
+        '''
+        Traverse the tree and expand all the leaves having .children attribute in the head of the DLL node. Adding the children to the tree node and updating the depth of the children by increasing 1.
+        '''
+        def expansion_action(node):
+            """
+            Action function to expand the leaves of the tree.
+            """
+            # Check if the node is a leaf (i.e., has no children)
+            if not node.children:
+                # Safely check for children (submodules) in the current PyTorch module
+                if hasattr(node.info.head.module, 'children'):
+                    for child in node.info.head.module.children():
+                        child_node = self.tree.add_child(node)  # Add child node to the current tree node
+
+                        # Add info for the child node
+                        child_dll_node = DoublyListNode()  # the dll node to store the information
+                        child_dll_node.module = child
+                        child_dll_node.depth = node.info.head.depth + 1
+
+                        child_node.info.append(child_dll_node)  # append on the child_node.info
+
+        # Use the traverse method to expand the leaves
+        self.tree.traverse(self.tree.root, expansion_action)
 
     def _merge_nodes(self, parent_node, n, m):
         """
@@ -356,7 +380,7 @@ class PyTreeManager:
         else:
             return False
 
-    def _feature_tracker(self, batched_inputs):
+    def feature_tracker(self, batched_inputs):
         '''
         The function to track the features after each module in the module and store the features in the first empty DLL node, which is the second one. 
         '''
@@ -370,18 +394,10 @@ class PyTreeManager:
             '''
             As we go through each node of the tree, there will be depth change tracker that if the depth is changed, the input features will be reassigned. 
             '''
-            # Initilize the DLL node to store the computed intermediate features
-            info_dll_node = DoublyListNode()
-            info_dll_node.batched_input_features = []
-            info_dll_node.batched_output_features = []
-            # Append the info_dll_node to the tree_node
-            tree_node.info.append(info_dll_node)
-
             nonlocal depth_tracker
             nonlocal output_tracker
             current_depth = tree_node.info.head.depth # the current depth of the tree node
             if (current_depth != depth_tracker) and (current_depth not in output_tracker.keys()): # if the depth is changed and first tracked by the output_tracker
-
                 batched_input_features = batched_inputs # reset the batched_input_features
             else: # if the depth is not changed
                 batched_input_features = output_tracker[current_depth] # pass the output features of previous tree node to the current node
@@ -396,12 +412,79 @@ class PyTreeManager:
 
             output_tracker[current_depth] = batched_output_features # update the output_tracker for the current node
 
-            # Append the input and output features to the tail DLL node of the current tree node 
-            tree_node.info.tail.batched_input_features.append(batched_input_features)
-            tree_node.info.tail.batched_output_features.append(batched_output_features)
+            info_dll_node_in, info_dll_value_in =self._get_attr(tree_node, 'batched_input_features')
+
+            info_dll_node_out, info_dll_value_out =self._get_attr(tree_node, 'batched_output_features')
+
+            if info_dll_node_in and info_dll_node_out: # if the input and output features are found in the tree node
+                info_dll_node_in.batched_input_features = batched_input_features
+                info_dll_node_out.batched_output_features = batched_output_features
+            elif (not info_dll_node_in) and (not info_dll_node_out):
+                # Initilize the DLL node to store the computed intermediate features
+                info_dll_node = DoublyListNode()
+
+                # Append the input and output features to the tail DLL node of the current tree node 
+                info_dll_node.batched_input_features = batched_input_features
+                info_dll_node.batched_output_features = batched_output_features
+
+                # Append the info_dll_node to the tree_node
+                tree_node.info.append(info_dll_node)
+            else: 
+                raise AttributeError("The input and output features should co-exist.")
 
         self.tree.traverse(self.tree.root, calculate_output_features)
 
+        # Consistency check for the output features
+        
+        assert sum([(v != output_tracker[0]).sum().item() for v in output_tracker.values()]) == 0, "Inconsistent output features for different depths in the tree."
+
+    def update_info(self, func):
+        """
+        Updates the additional information to the DLL nodes, using traverse method.
+        This is a compounded method based on other methods.
+        Args:
+            func: the function to update the information of the DLL node, the output of the func should be a dictionary 
+            batched_inputs: the input data to the network passed to the feature_tracker
+        """
+        
+        def tree_action(tree_node):
+            dll_node = DoublyListNode() # initialize the DLL node to store the information
+            info_dict = func(tree_node) # get the information from the function
+            dll_node.__dict__.update(info_dict) # update the information to the DLL node
+            tree_node.info.append(dll_node) # append the DLL node to the tree node
+
+        self.tree.traverse(self.tree.root, tree_action)
+
+    def _get_attr(self, tree_node, attr_name):
+        """
+        Retrieves the attribute value of the DLL nodes in the tree.
+        Args:
+            tree_node: the node of the tree to retrieve the attribute
+            attr_name: the attribute name to retrieve
+        Returns:
+            attr_values: the list of the attribute values of the DLL nodes in the tree
+        """
+        attr_values = []
+        attr_nodes = []
+    
+        def get_attr_action(dll_node):
+            if hasattr(dll_node, attr_name):
+                attr_nodes.append(dll_node)
+                attr_values.append(getattr(dll_node, attr_name))
+
+        tree_node.info.traverse(get_attr_action)
+
+        # to insure that the attribute has the same value or dll node in the tree nodes 
+        assert (len(attr_values) <= 1) or (len(attr_nodes) <= 1), f"The attribute {attr_name} has different values or dll nodes in the tree nodes."
+
+        # if no attribute value is found, return None
+        if (len(attr_values) == 0) and (len(attr_nodes) == 0):
+            return None, None
+        # if the attribute value is None
+        elif (len(attr_values) == 0) and (len(attr_nodes) > 0):
+            return attr_nodes[0], None
+        else:
+            return attr_nodes[0], attr_values[0]
 
     def __str__(self):
         """String representation of the tree manager."""
