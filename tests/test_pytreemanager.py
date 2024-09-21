@@ -284,13 +284,13 @@ class TestPyTreeManagerComplex(unittest.TestCase):
 
     def test_get_max_depth(self):
         """
-        Test if the _get_max_depth method correctly returns the maximum depth of the tree.
+        Test if the get_max_depth method correctly returns the maximum depth of the tree.
         """
         # Build the tree from the PyTorch model
         self.manager.build_tree(self.model)
 
         # Get the maximum depth of the tree
-        max_depth = self.manager._get_max_depth()
+        max_depth = self.manager.get_max_depth()
 
         # Verify that the maximum depth is correct
         self.assertEqual(max_depth, 2, "The maximum depth of the tree should be 2.")

@@ -72,58 +72,56 @@ pytreemanager._alias('remove')
 print(pytreemanager.tree)
 pytreemanager._alias('add')
 print(pytreemanager.tree)
-pytreemanager._merge_nodes(pytreemanager.tree.root, 0, 2)
-pytreemanager._merge_nodes(pytreemanager.tree.root, 1, 2)
-pytreemanager._merge_nodes(pytreemanager.tree.root, 2, 3)
-pytreemanager._merge_nodes(pytreemanager.tree.root, 3, 4)
-pytreemanager._merge_nodes(pytreemanager.tree.root, 4, 5)
-pytreemanager._merge_nodes(pytreemanager.tree.root, 5, 6)
-pytreemanager._merge_nodes(pytreemanager.tree.root, 6, 6)
-pytreemanager._alias('remove')
-pytreemanager._expand_leaves()
-pytreemanager._alias('add')
+# pytreemanager._merge_nodes(pytreemanager.tree.root, 0, 2)
+# pytreemanager._merge_nodes(pytreemanager.tree.root, 1, 2)
+# pytreemanager._merge_nodes(pytreemanager.tree.root, 2, 3)
+# pytreemanager._merge_nodes(pytreemanager.tree.root, 3, 4)
+# pytreemanager._merge_nodes(pytreemanager.tree.root, 4, 5)
+# pytreemanager._merge_nodes(pytreemanager.tree.root, 5, 6)
+# pytreemanager._merge_nodes(pytreemanager.tree.root, 6, 6)
+pytreemanager.merger_nodes({pytreemanager.tree.root:[(0, 2), (3, 4), (5, 6), (7, 8), (9, 10), (11, 12), (13, 13)]}) # pytreemanager._expand_leaves() and pytreemanager._alias('remove') are included in the _merge_nodes() function
 print(pytreemanager.tree)
 
 
-def func(tree_node): # a function that wraps the sigma_max_Jacobian
-    # get the arguments for the sigma_max_Jacobian
-    module = tree_node.info.head.module
-    _, batched_inputs_features = pytreemanager._get_attr(tree_node, 'batched_input_features')
+# def func(tree_node): # a function that wraps the sigma_max_Jacobian
+#     # get the arguments for the sigma_max_Jacobian
+#     module = tree_node.info.head.module
+#     _, batched_inputs_features = pytreemanager._get_attr(tree_node, 'batched_input_features')
 
-    batched_inputs_features = torch.unsqueeze(batched_inputs_features, 1) # notice that we have to expand the dimension of the input features even if it has an batch dimension,e.g., (256, 3, 32, 32) to (256, 1, 3, 32, 32), because of the vmap function in the sigma_max_Jacobian. 
+#     batched_inputs_features = torch.unsqueeze(batched_inputs_features, 1) # notice that we have to expand the dimension of the input features even if it has an batch dimension,e.g., (256, 3, 32, 32) to (256, 1, 3, 32, 32), because of the vmap function in the sigma_max_Jacobian. 
 
-    # compute the maximal singular value of the Jacobian of the module w.r.t. batched_inputs
-    msv_dict = {}
-    msv_dict['msv'] = sigma_max_Jacobian(module, batched_inputs_features, DEVICE, iters=10, tol=1e-5)
-    return msv_dict
+#     # compute the maximal singular value of the Jacobian of the module w.r.t. batched_inputs
+#     msv_dict = {}
+#     msv_dict['msv'] = sigma_max_Jacobian(module, batched_inputs_features, DEVICE, iters=10, tol=1e-5)
+#     return msv_dict
 
-# Training loop
-for epoch in range(num_epochs):
-    model.train()
-    running_loss = 0.0
-    for i, (inputs, labels) in enumerate(train_loader):
-        inputs, labels = inputs.to(DEVICE), labels.to(DEVICE)
+# # Training loop
+# for epoch in range(num_epochs):
+#     model.train()
+#     running_loss = 0.0
+#     for i, (inputs, labels) in enumerate(train_loader):
+#         inputs, labels = inputs.to(DEVICE), labels.to(DEVICE)
         
-        # Ensure inputs require gradients
-        inputs.requires_grad_(True)
+#         # Ensure inputs require gradients
+#         inputs.requires_grad_(True)
 
-        # Forward pass
-        outputs = model(inputs)
-        loss = criterion(outputs, labels)
+#         # Forward pass
+#         outputs = model(inputs)
+#         loss = criterion(outputs, labels)
 
-        # Backward pass and optimization
-        optimizer.zero_grad()
-        loss.backward()
-        optimizer.step()
+#         # Backward pass and optimization
+#         optimizer.zero_grad()
+#         loss.backward()
+#         optimizer.step()
 
-        running_loss += loss.item()
-        if (i + 1) % 100 == 0:
-            print(f'Epoch [{epoch + 1}/{num_epochs}], Step [{i + 1}/{len(train_loader)}], Loss: {running_loss / 100:.4f}')
-            running_loss = 0.0
+#         running_loss += loss.item()
+#         if (i + 1) % 100 == 0:
+#             print(f'Epoch [{epoch + 1}/{num_epochs}], Step [{i + 1}/{len(train_loader)}], Loss: {running_loss / 100:.4f}')
+#             running_loss = 0.0
 
-        pytreemanager.feature_tracker(inputs)
-        pytreemanager.update_info(func)
-        
+#         pytreemanager.feature_tracker(inputs)
+#         pytreemanager.update_info(func)
+
      
 # # E valuate the model
 # model.eval()

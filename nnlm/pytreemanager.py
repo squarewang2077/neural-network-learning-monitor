@@ -166,6 +166,38 @@ class PyTreeManager:
         # Insert the new merged node into the parent's list of children at position `n`
         parent_node.children.insert(n, merged_node)
 
+    def merger_nodes(self, parent_child_nodes_dict):
+        '''
+        This method warp the _merge_nodes method to merge the adjacent sibling nodes from the parent_child_nodes_dict. After the merge, the leaves will be expanded.
+        Args: 
+            parent_child_nodes_dict: the dictionary that contains the parent node and the child nodes to be merged. The parent node is the key and the value is a list of the child nodes to be merged. 
+        '''
+
+        def pop_reindex(index_pair_list):
+            '''
+            This function is to pop the first pair of the index_pair_list and reindex the rest of the index_pair_list by subtracting the length of the first pair.
+            Return:
+                first_pair: the first pair of the index_pair_list
+            '''
+            first_pair = index_pair_list.pop(0)
+            first_pair_length = first_pair[1] - first_pair[0]
+
+            for i in range(len(index_pair_list)):
+                index_pair_list[i] = (index_pair_list[i][0] - first_pair_length, index_pair_list[i][1] - first_pair_length)
+
+            return first_pair[0], first_pair[1]
+
+        for parent_node, index_pair_list in parent_child_nodes_dict.items():
+            '''
+                go through the parent_child_nodes_dict and merge the adjacent sibling nodes from the parent_node    
+            '''
+            while index_pair_list: # merge all the adjacent sibling nodes from the parent_node
+                m, n = pop_reindex(index_pair_list)
+                self._merge_nodes(parent_node, m, n)
+
+        self._expand_leaves() # expand the leaves after merging the nodes
+        self._alias('add')
+
     def _find_parent_node(self, target_node: TreeNode):
         """
         Finds the parent of the given target node in the tree.
@@ -320,10 +352,10 @@ class PyTreeManager:
         nodes_to_remove = nonleaf_nodes
 
         # Now, remove the marked nodes
-        for node in nodes_to_remove:
+        for node in nodes_to_remove: 
             self._remove_node(node)
 
-    def _alias(self, add_or_remove="add"):
+    def _alias(self, add_or_remove="add"): 
         """
         Assigns or removes a unique name to/from the head node of each DLL in the tree.
         The name is the name of the module and the depth of the module in a short form.
@@ -346,7 +378,7 @@ class PyTreeManager:
 
         self.tree.traverse(self.tree.root, rename_action)
 
-    def _get_max_depth(self):
+    def get_max_depth(self):
         """
         Returns the maximum depth of the tree.
         """
@@ -379,6 +411,37 @@ class PyTreeManager:
             return True
         else:
             return False
+
+    def _get_attr(self, tree_node, attr_name):
+        """
+        Retrieves the attribute value of the DLL nodes in the tree.
+        Args:
+            tree_node: the node of the tree to retrieve the attribute
+            attr_name: the attribute name to retrieve
+        Returns:
+            attr_values: the node and the corresponding attribute value
+        """
+        attr_values = []
+        attr_nodes = []
+    
+        def get_attr_action(dll_node):
+            if hasattr(dll_node, attr_name):
+                attr_nodes.append(dll_node)
+                attr_values.append(getattr(dll_node, attr_name))
+
+        tree_node.info.traverse(get_attr_action)
+
+        # to insure that the attribute has the same value or dll node in the tree nodes 
+        assert (len(attr_values) <= 1) or (len(attr_nodes) <= 1), f"The attribute {attr_name} has different values or dll nodes in the tree nodes."
+
+        # if no attribute value is found, return None
+        if (len(attr_values) == 0) and (len(attr_nodes) == 0):
+            return None, None
+        # if the attribute value is None
+        elif (len(attr_values) == 0) and (len(attr_nodes) > 0):
+            return attr_nodes[0], None
+        else:
+            return attr_nodes[0], attr_values[0]
 
     def feature_tracker(self, batched_inputs):
         '''
@@ -454,37 +517,6 @@ class PyTreeManager:
             tree_node.info.append(dll_node) # append the DLL node to the tree node
 
         self.tree.traverse(self.tree.root, tree_action)
-
-    def _get_attr(self, tree_node, attr_name):
-        """
-        Retrieves the attribute value of the DLL nodes in the tree.
-        Args:
-            tree_node: the node of the tree to retrieve the attribute
-            attr_name: the attribute name to retrieve
-        Returns:
-            attr_values: the list of the attribute values of the DLL nodes in the tree
-        """
-        attr_values = []
-        attr_nodes = []
-    
-        def get_attr_action(dll_node):
-            if hasattr(dll_node, attr_name):
-                attr_nodes.append(dll_node)
-                attr_values.append(getattr(dll_node, attr_name))
-
-        tree_node.info.traverse(get_attr_action)
-
-        # to insure that the attribute has the same value or dll node in the tree nodes 
-        assert (len(attr_values) <= 1) or (len(attr_nodes) <= 1), f"The attribute {attr_name} has different values or dll nodes in the tree nodes."
-
-        # if no attribute value is found, return None
-        if (len(attr_values) == 0) and (len(attr_nodes) == 0):
-            return None, None
-        # if the attribute value is None
-        elif (len(attr_values) == 0) and (len(attr_nodes) > 0):
-            return attr_nodes[0], None
-        else:
-            return attr_nodes[0], attr_values[0]
 
     def __str__(self):
         """String representation of the tree manager."""
