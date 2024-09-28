@@ -170,6 +170,29 @@ class Tree:
         parent_node.children.append(child_node) # [].append
         return child_node
 
+    def _find_parent_node(self, target_node: TreeNode):
+        """
+        Finds the parent of the given target node in the tree.
+
+        Args:
+            target_node (TreeNode): The node whose parent needs to be found.
+
+        Returns:
+            TreeNode: The parent node of the target node, or None if the target node is not found in the tree.
+        """
+        parent_node = None
+
+        def search_for_parent(current_node):
+            nonlocal parent_node
+            if target_node in current_node.children:
+                parent_node = current_node
+
+        # Traverse the tree to find the parent of the target_node
+        self.traverse(self.root, search_for_parent)
+
+        return parent_node
+
+
     def traverse(self, node=None, action=None):
         """
         Performs pre-order traversal on the tree, applying an action (function) to each node.
@@ -236,35 +259,38 @@ class Tree:
         last_child_map = {}  # Track if a node is the last child
 
         # helper function to collect depth and last child information
-        def pre_collect_data(node):
+        def collect_data(node):
             depth = depth_map[node] # depth of the parent node, default for root is 0
             for i, child in enumerate(node.children): 
                 depth_map[child] = depth + 1 # collect the depth of the child nodes 
                 last_child_map[child] = (i == len(node.children) - 1) # collect the last node of the child nodes 
 
         # first pass to collect depth and last child information
-        self.traverse(self.root, pre_collect_data)
+        self.traverse(self.root, collect_data)
 
         # helper function to colect property prefix for printing node in a tree-like structure
-        def collect_node_data(node):
+        def get_prefix(node):
             depth = depth_map[node]
             is_last = last_child_map.get(node, True) # {}.get
 
-            # different prefixes for different depth and whether it is the last child 
             if depth == 0:
-                prefix = ""
+                prefix = "" # the prefix for the root node
             else:
-                prefix = ""
+                prefix = "" # initialize the prefix for the current node, it has to be defined before use
+
                 current_node = node
                 # the update for the prefix also depends on the parent nodes
-                for d in range(depth - 1): # go through the depth of the tree 
-                    parent_node = [
-                        n for n, c in depth_map.items() if c == depth - 1 - d and current_node in n.children
-                    ][0] # set up for the parent nodes that belongs to the current node for given depth of the tree  
+                for _ in range(depth - 1): # go through the depth of the tree 
+                    # parent_node = [
+                    #     n for n, c in depth_map.items() if c == depth - 1 - d and current_node in n.children
+                    # ][0] # set up for the parent nodes that belongs to the current node for given depth of the tree  
+                    parent_node = self._find_parent_node(current_node)
                     if last_child_map[parent_node]:
                         prefix = "    " + prefix
                     else:
                         prefix = "│   " + prefix
+
+                    current_node = parent_node
 
                 if is_last:
                     prefix += "└── "
@@ -274,6 +300,6 @@ class Tree:
             result.append(f"{prefix}{str(node)}")
 
         # Use the traverse method to print the tree structure
-        self.traverse(self.root, collect_node_data)
+        self.traverse(self.root, get_prefix)
 
         return "\n".join(result)

@@ -166,7 +166,7 @@ class PyTreeManager:
         # Insert the new merged node into the parent's list of children at position `n`
         parent_node.children.insert(n, merged_node)
 
-    def merger_nodes(self, parent_child_nodes_dict):
+    def merge_nodes(self, parent_child_nodes_dict):
         '''
         This method warp the _merge_nodes method to merge the adjacent sibling nodes from the parent_child_nodes_dict. After the merge, the leaves will be expanded.
         Args: 
@@ -199,26 +199,8 @@ class PyTreeManager:
         self._alias('add')
 
     def _find_parent_node(self, target_node: TreeNode):
-        """
-        Finds the parent of the given target node in the tree.
 
-        Args:
-            target_node (TreeNode): The node whose parent needs to be found.
-
-        Returns:
-            TreeNode: The parent node of the target node, or None if the target node is not found in the tree.
-        """
-        parent_node = None
-
-        def search_for_parent(current_node):
-            nonlocal parent_node
-            if target_node in current_node.children:
-                parent_node = current_node
-
-        # Traverse the tree to find the parent of the target_node
-        self.tree.traverse(self.tree.root, search_for_parent)
-
-        return parent_node
+        return self.tree._find_parent_node(target_node)
 
     def _replicate_info(self, node: TreeNode):
         """
@@ -354,6 +336,9 @@ class PyTreeManager:
         # Now, remove the marked nodes
         for node in nodes_to_remove: 
             self._remove_node(node)
+
+        self._alias("remove")
+        self._alias("add")
 
     def _alias(self, add_or_remove="add"): 
         """
