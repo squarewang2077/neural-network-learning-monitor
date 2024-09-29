@@ -503,6 +503,38 @@ class PyTreeManager:
 
         self.tree.traverse(self.tree.root, tree_action)
 
+    def search_info(self, conditions, keys):
+        """
+        Outputs the information of the DLL nodes in the tree that meet specified conditions.
+
+        Args:
+            conditions (dict): A dictionary of conditions to filter the DLL nodes.
+            keys (list): A list of keys to extract information from the DLL nodes.
+
+        Returns:
+            dict: A dictionary containing the extracted information for each key.
+        """
+        output_dict = {key: [] for key in keys}  # Initialize the output dictionary
+
+        def treenode_action(tree_node):
+            def fetch_info(dll_node):
+                # update the output_dict with the specified keys
+                for key in keys:
+                    if hasattr(dll_node, key):
+                        output_dict[key].append(getattr(dll_node, key))
+
+            # Check if the dll_node satisfies all conditions
+            if all(any(getattr(dll_node, cond_key, None) == cond_value for dll_node in tree_node.info) for cond_key, cond_value in conditions.items()):
+                tree_node.info.traverse(fetch_info)
+
+        try:
+            self.tree.traverse(self.tree.root, treenode_action)
+        except AttributeError as e:
+            raise RuntimeError(f"Failed to traverse the tree: {e}")
+
+        return output_dict
+
+
     def __str__(self):
         """String representation of the tree manager."""
         return str(self.tree) if self.tree is not None else "No tree has been built."

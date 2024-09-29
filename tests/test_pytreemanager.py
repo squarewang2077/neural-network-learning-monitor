@@ -390,5 +390,37 @@ class TestPyTreeManagerComplex(unittest.TestCase):
         # Verify that the depth of the expanded children is correct
         self.assertEqual(self.manager.tree.root.children[1].children[0].info.head.depth, 2, "Depth of the first child of the second child should be 2.")
         self.assertEqual(self.manager.tree.root.children[1].children[1].info.head.depth, 2, "Depth of the second child of the second child should be 2.")
+
+    def test_search_info(self):
+        """
+        Test if the search_info method correctly extracts information from the DLL nodes in the tree.
+        """
+        # Build the tree from the PyTorch model
+        self.manager.build_tree(self.model)
+
+        # Define a function to add custom attributes to each DLL node
+        def add_custom_attr(tree_node):
+            dll_node = DoublyListNode()
+            dll_node.custom_attr = "test_value"
+            tree_node.info.append(dll_node)
+
+        # Traverse the tree and add the custom attributes to each node
+        self.manager.tree.traverse(self.manager.tree.root, add_custom_attr)
+
+        # Define the conditions and keys for the search_info method
+        conditions = {"depth": 1}
+        keys = ["custom_attr", "depth"]
+
+        # Get the output information from the tree
+        output = self.manager.search_info(conditions, keys)
+
+        # Verify that the output contains the correct information
+        self.assertIn("custom_attr", output, "Output should contain 'custom_attr'.")
+        self.assertIn("depth", output, "Output should contain 'depth'.")
+        self.assertEqual(len(output["custom_attr"]), 3, "There should be 3 nodes with 'custom_attr'.")
+        self.assertEqual(len(output["depth"]), 3, "There should be 3 nodes with 'depth'.")
+        self.assertTrue(all(value == "test_value" for value in output["custom_attr"]), "All 'custom_attr' values should be 'test_value'.")
+        self.assertTrue(all(isinstance(depth, int) for depth in output["depth"]), "All 'depth' values should be integers.")
+
 if __name__ == '__main__':
     unittest.main()
