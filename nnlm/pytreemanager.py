@@ -486,9 +486,9 @@ class PyTreeManager:
         
         assert sum([(v != output_tracker[0]).sum().item() for v in output_tracker.values()]) == 0, "Inconsistent output features for different depths in the tree."
 
-    def update_info(self, func):
+    def append_info(self, func):
         """
-        Updates the additional information to the DLL nodes, using traverse method.
+        append the additional information to the DLL nodes, using traverse method.
         This is a compounded method based on other methods.
         Args:
             func: the function to update the information of the DLL node, the output of the func should be a dictionary 
@@ -502,6 +502,32 @@ class PyTreeManager:
             tree_node.info.append(dll_node) # append the DLL node to the tree node
 
         self.tree.traverse(self.tree.root, tree_action)
+
+    def update_info(self, func):
+        '''
+            Update the information to the existing DLL nodes, using traverse method.
+            If the attribute is not found in the tree node, raise an error.
+        '''
+        def tree_action(tree_node):
+            info_dict = func(tree_node) 
+            for attr in info_dict.keys():
+                attr_found = False  # Flag to check if the attribute is found
+
+                # Traverse the DLL nodes and update the value of the attribute
+                def update_attr_value(dll_node):
+                    nonlocal attr_found
+                    if hasattr(dll_node, attr):
+                        setattr(dll_node, attr, info_dict[attr])
+                        attr_found = True
+
+                tree_node.info.traverse(update_attr_value)
+
+                # If the attribute is not found in any DLL node, raise an error
+                if not attr_found:
+                    raise AttributeError(f"The attribute '{attr}' is not found in the tree node.")
+
+        self.tree.traverse(self.tree.root, tree_action)
+
 
     def search_info(self, conditions, keys):
         """

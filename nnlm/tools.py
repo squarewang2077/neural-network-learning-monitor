@@ -103,6 +103,62 @@ def sigma_max_Jacobian(func, batched_x, device, iters=10, tol=1e-5):
     # Convert MSV tensor to list and return
     return batched_msv.tolist()
 
+class PGDAttack:
+    def __init__(self, model, device, epsilon=1, alpha=0.003, num_iter=40, norm='L2'):
+        """
+        Initialize the PGD attack class.
+        
+        Args:
+            model: The neural network model to attack.
+            device: The device to run the attack on (e.g., 'cpu' or 'cuda').
+            epsilon: The maximum perturbation.
+            alpha: The step size.
+            num_iter: The number of iterations.
+            norm: The norm to use for the attack ('Linf' or 'L2').
+        """
+        self.model = model
+        self.device = device
+        self.epsilon = epsilon
+        self.alpha = alpha
+        self.num_iter = num_iter
+        self.norm = norm
+
+    def perturb(self, inputs, labels):
+        """
+        Perform PGD attack on the inputs.
+        
+        Args:
+            inputs: The original inputs.
+            labels: The true labels for the inputs.
+        
+        Returns:
+            adv_inputs: The adversarial examples.
+        """
+        adv_inputs = inputs.clone().detach().requires_grad_(True).to(self.device)
+        
+        for _ in range(self.num_iter):
+            outputs = self.model(adv_inputs)
+            loss = F.cross_entropy(outputs, labels)
+            grad = torch.autograd.grad(loss, adv_inputs, retain_graph=False, create_graph=False)[0]
+            
+            if self.norm == 'Linf':
+                adv_inputs = adv_inputs + self.alpha * grad.sign()
+                eta = torch.clamp(adv_inputs - inputs, min=-self.epsilon, max=self.epsilon)
+            elif self.norm == 'L2':
+                grad_norm = torch.norm(grad.view(grad.size(0), -1), dim=1).view(-1, 1, 1, 1)
+                normalized_grad = grad / (grad_norm + 1e-8)
+                adv_inputs = adv_inputs + self.alpha * normalized_grad
+                eta = adv_inputs - inputs
+                eta_norm = torch.norm(eta.view(eta.size(0), -1), dim=1).view(-1, 1, 1, 1)
+                factor = torch.min(torch.ones_like(eta_norm), self.epsilon / eta_norm)
+                eta = eta * factor
+            else:
+                raise ValueError("Norm not supported")
+            
+            adv_inputs = torch.clamp(inputs + eta, min=0, max=1).detach_()
+            adv_inputs.requires_grad_(True)
+        
+        return adv_inputs
 
 class Evaluator:
     def __init__(self, model, train_loader, test_loader, device, num_samples, attack_norm='L2', eps=None):
@@ -154,26 +210,29 @@ class Evaluator:
 
         return 100 * correct / total
 
+    # Replace the _pgd_attack method with the PGDAttack class
     def _evaluate_robust_accuracy(self):
-        adversary = AutoAttack(self.model, norm=self.attack_norm, eps=self.eps, version='standard', verbose=True)
-        adversary.attacks_to_run = ['apgd-ce', 'apgd-t', 'fab-t', 'square']
-
         robust_correct = 0
         total_robust = 0
+
+        pgd_attack = PGDAttack(self.model, self.device, epsilon=self.eps, alpha=self.eps / 10, num_iter=40, norm=self.attack_norm)
 
         for i, (inputs, labels) in enumerate(self.test_loader):
             if total_robust >= self.num_samples:
                 break
             inputs, labels = inputs.to(self.device), labels.to(self.device)
+            
+            # Generate adversarial examples using PGD attack
+            adv_inputs = pgd_attack.perturb(inputs, labels)
+            
             with torch.no_grad():
-                adv_inputs = adversary.run_standard_evaluation(inputs, labels, bs=inputs.size(0))
                 outputs = self.model(adv_inputs)
                 _, predicted = torch.max(outputs.data, 1)
                 total_robust += labels.size(0)
                 robust_correct += (predicted == labels).sum().item()
 
         return 100 * robust_correct / total_robust
-
+        
 
 class TradesLoss:
     def __init__(self, model, optimizer, step_size=0.003, epsilon=0.031, perturb_steps=10, beta=1.0, distance='l_2'):
@@ -256,26 +315,23 @@ class CrossCorr():
         self.pre_depth = -1 # initialize the depth tracker
 
         # initialize the result dictionary
-        self.result = {
-            'avg_a': [],
-            'avg_b': [],
-            'avg_rho': [],
-            'avg_tau': [],
+        self.result = {'mean_tau': [], 'std_tau': []}
 
-            'var_a': [],
-            'var_b': [],
-            'var_rho': [],
-            'var_tau': []
-        }
+    def reset_trackers(self):
+        self.pre_weight = None
+        self.pre_depth = -1
 
     def get_cross_corr(self, tree_node): # a function that wraps the cross_correlation
         module = tree_node.info.head.module
         current_depth = tree_node.info.head.depth
 
+        # the condition that whether the tree_node is the leaf node
+        
+
         if isinstance(module, nn.Linear):
             current_weight = module.weight  
             if (self.pre_weight is not None) and (self.pre_depth == current_depth): # if the previous weight is not None and the current depth is the same as the previous depth, then we can compute the cross-correlation
-                self._get_cross_corr(self.pre_weight, current_weight)
+                self._compute_cross_corr(self.pre_weight, current_weight)
 
             else:            
                 self._asign_none() # assign None to the result dictionary
@@ -291,103 +347,28 @@ class CrossCorr():
 
     def _asign_none(self):
 
-        self.result['avg_a'] = None  
-        self.result['avg_b'] = None
-        self.result['avg_rho'] = None
-        self.result['avg_tau'] = None                
+        self.result['mean_tau'] = None
+        self.result['std_tau'] = None
 
-        self.result['var_a'] = None
-        self.result['var_b'] = None
-        self.result['var_rho'] = None
-        self.result['var_tau'] = None
-
-    def _get_cross_corr(self, pre_weight, current_weight): # a function that compute cross_correlation
-
-        sub_result = {
-            'a': torch.tensor([]),
-            'b': torch.tensor([]),
-            'rho': torch.tensor([]),
-            'tau': torch.tensor([])
-        }
-
-        # for i in range(current_weight.shape[0]):
-        #     for j in range(pre_weight.shape[1]):
-        #         a, b, rho, tau = self.compute_rho_and_tau(current_weight[i], pre_weight[:, j])
-        #         sub_result['a'] = torch.cat((sub_result['a'].to(a.device), a.unsqueeze(0)))
-        #         sub_result['b'] = torch.cat((sub_result['b'].to(b.device), b.unsqueeze(0)))
-        #         sub_result['rho'] = torch.cat((sub_result['rho'].to(rho.device), rho.unsqueeze(0)))
-        #         sub_result['tau'] = torch.cat((sub_result['tau'].to(tau.device), tau.unsqueeze(0)))
-
-        a, b, rho, tau = self.compute_rho_and_tau(current_weight, pre_weight)
-
-        # Compute the mean of a, b, rho and tau 
-        self.result['avg_a'] = sub_result['a'].mean().item()  
-        self.result['avg_b'] = sub_result['b'].mean().item()
-        self.result['avg_rho'] = sub_result['rho'].mean().item()
-        self.result['avg_tau'] = sub_result['tau'].mean().item()                
-
-        # Compute the variance of rho and tau
-        self.result['var_a'] = sub_result['a'].var().item()
-        self.result['var_b'] = sub_result['b'].var().item()
-        self.result['var_rho'] = sub_result['rho'].var().item()
-        self.result['var_tau'] = sub_result['tau'].var().item()
-
-
-    @staticmethod            
-    def compute_rho_and_tau(matrix_x, matrix_y):
-        '''
-        Compute the cosine similarity and Pearson correlation coefficient between x and y. 
-        Args:
-            x (torch.Tensor): input tensor x
-            y (torch.Tensor): input tensor y
-        Returns:
-            a (float): the mean of x
-            b (float): the mean of y
-            rho (float): the cosine similarity
-            tau (float): the Pearson correlation coefficient   
-        '''
-        # check that matrix x and y can be dot product
-        assert matrix_x.shape[1] == matrix_y.shape[0], "matrix_x and matrix_y must be compatible for dot product"
-        # reshpare the matrix_x and matrix_y as one-dimension tensor
-        x = matrix_x.view(-1)
-        y = matrix_y.view(-1)
-
-        # computation of cosine-similarity 
-        rho = (x @ y) / (torch.norm(x) * torch.norm(y))        
-        rho = torch.sum(x * y) / (torch.norm(x) * torch.norm(y))
-        a = x.sum() / torch.norm(x)
-        b = y.sum() / torch.norm(y)
-        tau = (num * rho - a * b) /((num - a**2).sqrt() * (num - b**2).sqrt()) 
-
-        tau_2 = pearsonr(x.clone().detach().cpu().numpy(), y.clone().detach().cpu().numpy())
-
-        assert (tau.item() - tau_2[0].item()) < 10e-6, "tau is not equal to tau_2"
-
-        return a, b, rho, tau
-
-
-    @staticmethod            
-    def compute_avg_rowvar(matrix_x):
-        '''
-        Under the assumptions that the element for each row of the matrix drawn from the same distribution but the elements from different row may not, compute the average 
-        variance of the rows.
+    def _compute_cross_corr(self, W1, W2): # a function to compute the cross-correlation
         
-        Args:
-            matrix_x (torch.Tensor): input 2D tensor
+        W2 = W2 - W2.mean(dim=1, keepdim=True) # substract the mean of each row for W2
+        W2 = W2 / W2.std(dim=1, keepdim=True) # standardize the rows of W1 by its standerd deviation
         
-        Returns:
-            avg_var (float): the average variance of the rows
-        '''
-        # Check whether matrix_x is a 2-dimension tensor
-        assert matrix_x.dim() == 2, "matrix_x must be a 2D tensor"
+        W1 = W1 - W1.mean(dim=0, keepdim=True) # substract the mean of each column for W2
+        W1 = W1 / W1.std(dim=0, keepdim=True) # standardize the columns of W2 by its standerd deviation
 
-        # Check whether matrix_x is a nn.Tensor
-        assert isinstance(matrix_x, torch.Tensor), "matrix_x must be a torch.Tensor"
+        # assert whether W1 and W2 can be dot producted 
+        assert W1.shape[0] == W2.shape[1], 'The two matrices cannot be dot producted'
 
-        # Compute the variance for each row of the matrix_x
-        row_variances = torch.var(matrix_x, dim=1, unbiased=True)
+        # the number of the rows of W1 is the number of the rows of the cross-correlation matrix
+        num = W2.shape[1]
 
-        # Compute the average of the variances
-        avg_rowvar = torch.mean(row_variances).item()
+        # compute the cross-correlation matrix
+        mean_tau = torch.matmul(W2, W1).mean() / num
+        std_tau = (torch.matmul(W2, W1)/num).std()
 
-        return avg_rowvar
+        # update the result dictionary
+        self.result['mean_tau'] = mean_tau.item()
+        self.result['std_tau'] = std_tau.item()
+
