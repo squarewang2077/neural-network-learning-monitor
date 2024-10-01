@@ -8,6 +8,39 @@ from autoattack import AutoAttack
 import torch.nn.functional as F
 
 
+class CorrNet(nn.Module):
+    def __init__(self, input_size, hidden_size, output_size, correlate_layer = True):
+        super().__init__()
+
+        # Define the layers
+        self.flatten = nn.Flatten()
+        self.fc1 = nn.Linear(input_size, hidden_size)
+        self.relu6 = nn.ReLU6()
+        self.fc2 = nn.Linear(hidden_size, output_size)
+        
+        # Custom weight initialization
+        if correlate_layer:
+            self.initialize_weights()
+    
+    def initialize_weights(self):
+        
+        std = (2/self.fc1.in_features)**0.5
+        # Create the identical column vector for the first layer
+        identical_vector = torch.randn(self.fc1.out_features) * std  # Random vector for initialization
+        
+        # Set each column of the first layer to be the same as the vector
+        self.fc1.weight = nn.Parameter(identical_vector.unsqueeze(1).repeat(1, self.fc1.in_features))
+            
+        # Set each row of the second layer to be the same as the vector
+        self.fc2.weight = nn.Parameter(identical_vector.unsqueeze(0).repeat(self.fc2.out_features, 1))
+    
+    def forward(self, x):
+        x = self.flatten(x)
+        x = self.fc1(x)
+        x = self.relu6(x)
+        x = self.fc2(x)
+        return x
+
 class DeepMLP(nn.Module):
     def __init__(self, input_size, hidden_sizes, output_size, activation='relu'):
         super().__init__()
@@ -20,6 +53,14 @@ class DeepMLP(nn.Module):
             layers.append(nn.Linear(in_size, hidden_size))
             if activation == 'relu':
                 layers.append(nn.ReLU())
+            elif activation == 'elu':
+                layers.append(nn.ELU())
+            elif activation == 'leaky_relu':
+                layers.append(nn.LeakyReLU())
+            elif activation == 'relu6':
+                layers.append(nn.ReLU6())
+            elif activation == 'linear':
+                layers.append(nn.Identity())
             elif activation == 'tanh':
                 layers.append(nn.Tanh())
             elif activation == 'sigmoid':

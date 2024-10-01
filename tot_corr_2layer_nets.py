@@ -12,19 +12,16 @@ def main():
 
     parser = argparse.ArgumentParser(description='train_attack_analysis_MLPs')
 
-    parser.add_argument('--act_name', type=str, default='relu6', 
-                        help='the activation')
-    parser.add_argument('--num_hidden_layers', type=int, default=1, # should be 1, 3, 7 
-                        help='the number of hidden layers')
-    parser.add_argument('--width', type=int, default=256, # should be 16, 128, 512 
-                        help='the width of the hidden layers')
-    parser.add_argument('--beta', type=int, default=0.0,  
+    parser.add_argument('--beta', type=float, default=0.0, # should be 1.0, 6.0, 12.0 
                         help='the beta of the TRADES loss')
 
+    parser.add_argument('--corr', type=bool, default=False, 
+                        help='the control of the correlate layer')
 
     args = parser.parse_args()
 
     print(args.beta)
+    print(args.corr)
 
     # Hyperparameters
     batch_size = 256
@@ -34,7 +31,7 @@ def main():
 
     ### Model setup ###
     # Define Neural Network
-    model = DeepMLP(input_size=3*32*32, hidden_sizes=[args.width]*args.num_hidden_layers, output_size=10, activation=args.act_name)
+    model = CorrNet(input_size=3*32*32, hidden_size=256, output_size=10, correlate_layer=args.corr)
     model = model.to(DEVICE)
 
     # Model modification
@@ -62,7 +59,7 @@ def main():
 
     ### Optimizer and Loss setup ###
     optimizer = optim.Adam(model.parameters(), lr=learning_rate)
-    criterion = TradesLoss(model=model, optimizer=optimizer, step_size=0.003, epsilon=0.031, perturb_steps=10, beta=args.beta)
+    criterion = TradesLoss(model=model, optimizer=optimizer, step_size=0.003, epsilon=1.0, perturb_steps=40, beta=args.beta)
     ### End of optimizer and Loss setup ###
 
     ### Evaluation setup ###
@@ -143,9 +140,9 @@ def main():
     result_mean_tau_df = pd.DataFrame(result_mean_tau)
     result_std_tau_df = pd.DataFrame(result_std_tau)
 
-    result_eval_df.to_csv(f'./log/eval/eval_MLP({args.width}x{args.num_hidden_layers + 1}-{args.act_name}).csv', index=False)
-    result_mean_tau_df.to_csv(f'./log/mean_tau/mean_tau_MLP({args.width}x{args.num_hidden_layers + 1}-{args.act_name}).csv', index=False)
-    result_std_tau_df.to_csv(f'./log/std_tau/std_tau_MLP({args.width}x{args.num_hidden_layers + 1}-{args.act_name}).csv', index=False)
+    result_eval_df.to_csv(f'./log/eval/eval_MLP(256x2-relu6)_trades({args.beta})_init({args.corr}).csv', index=False)
+    result_mean_tau_df.to_csv(f'./log/mean_tau/mean_tau_MLP(256x2-relu6)_trades({args.beta})_init({args.corr}).csv', index=False)
+    result_std_tau_df.to_csv(f'./log/std_tau/std_tau_MLP(256x2-relu6)_trades({args.beta})_init({args.corr}).csv', index=False)
 
 
 if __name__ == '__main__':
