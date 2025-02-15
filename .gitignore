@@ -166,3 +166,6 @@ dataset/
 
 # Ignore log folder
 log/
+
+# Ignore data_process.ipynb
+data_process.ipynb
